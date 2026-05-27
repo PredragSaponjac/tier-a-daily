@@ -11,8 +11,9 @@ import parameters as P
 
 TRACK_RECORD_LINE = (
     "📊 Live track record (skew-tracker AR-style, since 4/20):\n"
-    "AR ✅ | CRSP ✅ T1+T2 | SMMT ⚠️ scale-dep | SYM ❌ -7% | VKTX 🟢 +8% open\n"
-    "Backtest n=63: 67% TP1 hit rate, 71% profitable, +5.2% avg/trade"
+    "AR ✅ +7% | CRSP ✅ TP1 | SMMT ✅ TP1 | SYM ❌ -7% | VKTX ✅ TP1\n"
+    "Backtest n=63: 67% TP1 hit rate, 71% profitable, +5.2% avg/trade\n"
+    "Full history: https://docs.google.com/spreadsheets/d/1R-PafqOjeNbReaGuM5xv5YS3xf1EvwtichPQLUKwedA/edit"
 )
 
 DISCLAIMER = (
