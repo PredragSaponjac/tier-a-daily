@@ -1,0 +1,73 @@
+name: Tier A Daily — main run
+
+# Trigger:
+#  - 20:45 UTC = 3:45 PM CDT (Mar-Nov), Mon-Fri
+#    NOTE: When DST ends (~Nov 2), shift to 21:45 UTC (3:45 PM CST)
+#  - Manual via Actions tab
+on:
+  schedule:
+    - cron: '45 20 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      scan_date:
+        description: 'Override scan_date (YYYY-MM-DD), leave empty for latest'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (no Telegram send)'
+        type: boolean
+        default: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to commit archive + tracker state back
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Checkout skew-tracker (sibling repo for skew_history.db)
+        uses: actions/checkout@v4
+        with:
+          repository: PredragSaponjac/skew-tracker
+          path: skew-tracker
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Patch skew DB path for CI
+        run: |
+          sed -i 's|C:\\\\Users\\\\18329\\\\Downloads\\\\skew-tracker|./skew-tracker|g' scanner_reader.py
+          cat scanner_reader.py | grep SKEW_DB
+
+      - name: Run Tier A Daily
+        env:
+          UW_API_KEY: ${{ secrets.UW_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "${{ github.event.inputs.scan_date }}" ]; then
+            ARGS="--scan-date ${{ github.event.inputs.scan_date }}"
+          else
+            ARGS="--require-today"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python main.py $ARGS
+
+      - name: Commit state changes (archive, tracker)
+        run: |
+          git config user.name "tier-a-daily-bot"
+          git config user.email "bot@tieradaily.local"
+          git add signals/ open_positions.json track_record.csv 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Daily run $(date -u +%Y-%m-%d)"
+          git push || true

@@ -1,0 +1,9 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+uw_cache/
+*.log
+track_record.csv

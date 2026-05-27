@@ -1,0 +1,44 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-05-27",
+  "regime_note": "Initial launch parameters from research_uw_picker_v1. Pre-self-review baseline.",
+  "entry": {
+    "min_filter_score": 1,
+    "min_filter_score_comment": "1 = alert on any Tier A with at least 1 UW condition met. 3 = exceptional-only (very rare)."
+  },
+  "exits": {
+    "tp1_pct": 10.0,
+    "tp2_pct": 11.0,
+    "tp3_pct": 20.0,
+    "stop_pct": -7.0,
+    "time_stop_days": 10,
+    "scale_at_tp1_pct": 35,
+    "scale_at_tp2_pct": 35,
+    "scale_at_tp3_pct": 30,
+    "bot_auto_close_at": "tp1",
+    "bot_auto_close_at_comment": "Bot's default exit is TP1. T2/T3 noted in post for traders holding longer at own discretion."
+  },
+  "vetoes": {
+    "earnings_within_days": 14,
+    "min_total_oi": 500
+  },
+  "filter_thresholds": {
+    "ncp_z_threshold": -0.5,
+    "coi_pct_threshold": -5.0,
+    "poi_pct_threshold": 0.0,
+    "dp_blocks_threshold": 30
+  },
+  "uw_pulls": {
+    "options_volume_days_back": 20,
+    "options_volume_days_back_comment": "Only need ~15 days for z-score + OI evolution. 20 = small buffer. Override via CLI --vol-days for backtests on older dates.",
+    "darkpool_days_back": 10,
+    "darkpool_days_back_comment": "10 trading days before entry day, used for cumulative block count + slope."
+  },
+  "change_log": [
+    {
+      "date": "2026-05-27",
+      "change": "initial parameters",
+      "rationale": "research_uw_picker_v1 baseline, no prospective data yet"
+    }
+  ]
+}

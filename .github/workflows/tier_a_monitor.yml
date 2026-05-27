@@ -1,0 +1,55 @@
+name: Tier A Daily — intraday monitor
+
+# Trigger:
+#  - Every 15 min during US market hours: 14:30-21:00 UTC (9:30 AM - 4:00 PM CDT)
+#    Currently CDT (Mar-Nov). DST ends ~Nov 2 → shift to 15:30-22:00 UTC.
+#  - Mon-Fri only
+#  - Manual via Actions tab
+on:
+  schedule:
+    - cron: '*/15 14-21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to commit tracker state changes
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Check if any open positions (skip if none)
+        id: check
+        run: |
+          if [ -f open_positions.json ] && [ "$(jq '.positions | length' open_positions.json 2>/dev/null || echo 0)" -gt 0 ]; then
+            echo "has_positions=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_positions=false" >> $GITHUB_OUTPUT
+            echo "No open positions — skipping monitor."
+          fi
+
+      - name: Run monitor
+        if: steps.check.outputs.has_positions == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor.py
+
+      - name: Commit state changes (if any closes)
+        if: steps.check.outputs.has_positions == 'true'
+        run: |
+          git config user.name "tier-a-daily-bot"
+          git config user.email "bot@tieradaily.local"
+          git add open_positions.json track_record.csv 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Monitor run $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push || true
