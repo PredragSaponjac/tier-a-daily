@@ -1,4 +1,4 @@
-name: Tier A Daily — intraday monitor
+name: Tier A Daily - intraday monitor
 
 # Trigger:
 #  - Every 15 min during US market hours: 14:30-21:00 UTC (9:30 AM - 4:00 PM CDT)
