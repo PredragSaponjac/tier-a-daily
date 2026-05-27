@@ -1,0 +1,8 @@
+# Force LF line endings for YAML files (GitHub Actions parser is strict)
+*.yml text eol=lf
+*.yaml text eol=lf
+# Force LF for Python and other text files for cross-platform consistency
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.csv text eol=lf
