@@ -43,13 +43,9 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
-      - name: Patch skew DB path for CI
-        run: |
-          sed -i 's|C:\\\\Users\\\\18329\\\\Downloads\\\\skew-tracker|./skew-tracker|g' scanner_reader.py
-          cat scanner_reader.py | grep SKEW_DB
-
       - name: Run Tier A Daily
         env:
+          SKEW_DB_PATH: ./skew-tracker/skew_history.db
           UW_API_KEY: ${{ secrets.UW_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

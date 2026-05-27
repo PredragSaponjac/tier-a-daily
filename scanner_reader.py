@@ -1,9 +1,12 @@
 """Read Tier A candidates from skew_history.db for a given scan date (default: latest)."""
+import os
 import sqlite3
 from pathlib import Path
 
-# Path to the skew-tracker DB (sibling repo)
-SKEW_DB = Path(r'C:\Users\18329\Downloads\skew-tracker\skew_history.db')
+# Path to the skew-tracker DB. Override via SKEW_DB_PATH env var (used in CI).
+# Default for local dev: sibling C:\Users\18329\Downloads\skew-tracker repo.
+SKEW_DB = Path(os.environ.get('SKEW_DB_PATH',
+    r'C:\Users\18329\Downloads\skew-tracker\skew_history.db'))
 
 EXCLUDED_ETFS = {'UVIX','UVXY','VXX','VIXY','SVIX','SVXY','SOXL','SOXS','TQQQ','SQQQ',
     'SPXL','SPXU','UPRO','SPXS','TNA','TZA','LABU','LABD','FAS','FAZ','JNUG','JDST','NUGT','DUST',
