@@ -1,0 +1,61 @@
+name: Skew AM - auto scan + label
+
+# Trigger:
+#  - 14:30 UTC = 9:30 AM CDT (Mar-Nov), Mon-Fri
+#    DST: Nov 2, 2026 — shift to 15:30 UTC (9:30 AM CST)
+#  - Manual via Actions tab
+on:
+  schedule:
+    - cron: '30 14 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip commit/push)'
+        type: boolean
+        default: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tier-a-daily
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run skew_tracker.py (AM scan)
+        run: |
+          python skew_tracker.py > skew_manual_am.log 2>&1
+          echo "Scan complete. Tail of log:"
+          tail -10 skew_manual_am.log
+
+      - name: Commit AM snapshot
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          git config user.name "tier-a-daily-bot"
+          git config user.email "bot@tieradaily.local"
+          git add skew_history.db skew_manual_am.log 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE AM (auto)"
+
+      - name: Run label_candidates.py
+        run: |
+          python label_candidates.py
+          echo "Labeling complete"
+
+      - name: Commit AM labels
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          git add skew_history.db 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE AM (auto)"
+          git push || true

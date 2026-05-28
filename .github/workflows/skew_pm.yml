@@ -1,0 +1,99 @@
+name: Skew PM - auto scan + label + scanner + signal
+
+# Trigger:
+#  - 19:45 UTC = 2:45 PM CDT (Mar-Nov), Mon-Fri
+#    DST: Nov 2, 2026 — shift to 20:45 UTC (2:45 PM CST)
+#  - Manual via Actions tab
+on:
+  schedule:
+    - cron: '45 19 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no Telegram/X send, no commit)'
+        type: boolean
+        default: false
+      scan_date_override:
+        description: 'Override scan_date for main.py (YYYY-MM-DD, empty = use today)'
+        required: false
+        default: ''
+
+jobs:
+  scan_and_signal:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tier-a-daily
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      # ===== STEP 1: PM SCAN =====
+      - name: Run skew_tracker.py (PM scan)
+        run: |
+          python skew_tracker.py > skew_manual_pm.log 2>&1
+          echo "Scan complete. Tail of log:"
+          tail -10 skew_manual_pm.log
+
+      - name: Commit PM snapshot
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          git config user.name "tier-a-daily-bot"
+          git config user.email "bot@tieradaily.local"
+          git add skew_history.db skew_manual_pm.log 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE PM (auto)"
+
+      # ===== STEP 2: LABEL FORWARD RETURNS =====
+      - name: Run label_candidates.py
+        run: |
+          python label_candidates.py
+          echo "Labeling complete"
+
+      - name: Commit PM labels
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          git add skew_history.db 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE PM (auto)"
+          git push || true
+
+      # ===== STEP 3: SCANNER + FILTER + ALERTS (the bot) =====
+      - name: Run Tier A Daily bot (scanner + UW filter + Telegram + X + Sheet)
+        env:
+          SKEW_DB_PATH: ./skew_history.db
+          UW_API_KEY: ${{ secrets.UW_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          GOOGLE_SHEETS_CREDS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDS_BASE64 }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.scan_date_override }}" ]; then
+            ARGS="$ARGS --scan-date ${{ github.event.inputs.scan_date_override }}"
+          else
+            ARGS="$ARGS --require-today"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python main.py $ARGS
+
+      - name: Commit archive state
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          git add signals/ open_positions.json track_record.csv 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"
+          git push || true
