@@ -5,8 +5,31 @@ Two alert types:
 - format_close(...) -> str (Phase 2: TP1 / stop hit alerts)
 """
 import os
+import datetime
 import requests
 import parameters as P
+
+
+def _next_trading_day_phrase(scan_date: str) -> str:
+    """Return a calendar-aware 'next update' phrase.
+
+    The bot only sends Telegram from the PM run, which fires Mon-Fri.
+    So from Fri the next update is Monday (NOT 'tomorrow' = Saturday).
+    Skips weekends. (US market holidays are not modeled here; on a holiday
+    the GH run simply produces no new data, which is acceptable.)
+    """
+    try:
+        d = datetime.date.fromisoformat(scan_date[:10])
+    except Exception:
+        return "Next update: next trading day."
+    nxt = d + datetime.timedelta(days=1)
+    while nxt.weekday() >= 5:          # 5 = Sat, 6 = Sun -> skip to Monday
+        nxt += datetime.timedelta(days=1)
+    if (nxt - d).days == 1:
+        when = "tomorrow"
+    else:
+        when = nxt.strftime("%A")      # e.g. "Monday"
+    return f"Next update: {when} after the 2:45 PM CT scan."
 
 
 TRACK_RECORD_LINE = (
@@ -101,14 +124,15 @@ def format_no_signal(scan_date: str, n_candidates: int, n_vetoed: int) -> str:
     if n_candidates == 0:
         return (
             f"📅 Tier A Daily — {scan_date}\n\n"
-            f"No Tier A candidates today (signal window closed).\n"
-            f"Next scan: tomorrow PM."
+            f"No Tier A setups passed the screen today.\n"
+            f"{_next_trading_day_phrase(scan_date)}"
         )
     return (
         f"📅 Tier A Daily — {scan_date}\n\n"
         f"{n_candidates} Tier A candidate(s) surfaced but {n_vetoed} vetoed and "
         f"none passed the composite filter strongly enough to alert.\n"
-        f"NO TRADE today."
+        f"NO TRADE today.\n"
+        f"{_next_trading_day_phrase(scan_date)}"
     )
 
 
