@@ -3,8 +3,8 @@
   "last_updated": "2026-05-27",
   "regime_note": "Initial launch parameters from research_uw_picker_v1. Pre-self-review baseline.",
   "entry": {
-    "min_filter_score": 1,
-    "min_filter_score_comment": "1 = alert on any Tier A with at least 1 UW condition met. 3 = exceptional-only (very rare)."
+    "min_filter_score": 3,
+    "min_filter_score_comment": "3 = exceptional-only: alert ONLY when >=3 of 4 UW conditions confirm (matches the research edge). 1 = any Tier A with >=1 UW condition (test/loose, do not use live)."
   },
   "exits": {
     "tp1_pct": 10.0,
@@ -39,6 +39,11 @@
       "date": "2026-05-27",
       "change": "initial parameters",
       "rationale": "research_uw_picker_v1 baseline, no prospective data yet"
+    },
+    {
+      "date": "2026-06-01",
+      "change": "min_filter_score 1 -> 3 (exceptional-only)",
+      "rationale": "1 was a test/loose setting left in by mistake; it alerted INTU on only 1/4 UW conditions (flow contradicting the thesis) and broadcast it to X with the full Bonferroni claim. 3 requires >=3 of 4 UW conditions to confirm, matching the research edge. Only exceptional, flow-confirmed setups now fire."
     }
   ]
 }

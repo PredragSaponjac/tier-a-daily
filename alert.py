@@ -98,8 +98,16 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
         }
         lines.append(f"{check} {label_map.get(key, key+': '+val_str)}")
     lines.append("")
-    lines.append("Matches the 'structural unwind + entry capitulation' pattern from")
-    lines.append("research_uw_picker_v1 (Bonferroni-significant, p=0.0007).")
+    # Only make the strong statistical-pattern claim when the flow actually
+    # confirms it (score >= 3). On weaker scores, state honestly that the skew
+    # setup is present but flow is not confirming - never attach the p=0.0007
+    # research claim to a setup that doesn't match the full pattern.
+    if score >= 3:
+        lines.append("Matches the 'structural unwind + entry capitulation' pattern from")
+        lines.append("research_uw_picker_v1 (Bonferroni-significant, p=0.0007).")
+    else:
+        lines.append("Skew setup present, but institutional flow is NOT confirming the")
+        lines.append("full 'structural unwind + capitulation' pattern — lower conviction.")
     lines.append("")
     lines.append(f"ENTRY: ${entry:.2f}")
     lines.append(f"🎯 T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%) — bot will auto-close here")
