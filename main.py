@@ -91,7 +91,13 @@ def main():
         print(f"  {i:>3d} {c['ticker']:6s} {str(s):>5s} {v_status:>6s} {v_reason}")
 
     # 5. Pick top
-    top = next((c for c in enriched if c['vetoes']['pass'] and c['filter'].get('score', 0) >= min_score), None)
+    # None-safe: a candidate whose UW score could not be computed (no
+    # options-volume data / insufficient pre-window) has score None. Coerce
+    # None -> 0 so it is simply filtered out (can't confirm flow = don't fire)
+    # instead of crashing the comparison. Same guard for a missing veto pass.
+    top = next((c for c in enriched
+                if c['vetoes'].get('pass')
+                and (c['filter'].get('score') or 0) >= min_score), None)
 
     if top is None:
         print(f"\nNo candidate passed vetoes AND score >= {min_score}. No alert.")
