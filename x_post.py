@@ -79,6 +79,7 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     parts.append(f"T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%)")
     parts.append(f"Stop: ${STOP:.2f} ({P.stop_pct():+.0f}%)")
     parts.append("")
+    parts.append("⏱️ Short-term pullback — ~5-7 day trade (10-day max hold).")
     parts.append("Bot auto-closes at T1.")
     parts.append("📊 Live track record: https://docs.google.com/spreadsheets/d/1R-PafqOjeNbReaGuM5xv5YS3xf1EvwtichPQLUKwedA")
     parts.append("")
