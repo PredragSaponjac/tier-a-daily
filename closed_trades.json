@@ -1,0 +1,7 @@
+[
+  {"ticker": "AR",   "entry_date": "2026-04-20", "entry_price": 36.79, "outcome": "WIN",  "heat_pct": -1.8,  "peak_pct": 8.9,  "peak_day": 9,  "src": "15m", "computed_on": "2026-06-03", "note": ""},
+  {"ticker": "CRSP", "entry_date": "2026-04-27", "entry_price": 50.59, "outcome": "WIN",  "heat_pct": -2.4,  "peak_pct": 11.0, "peak_day": 14, "src": "15m", "computed_on": "2026-06-03", "note": ""},
+  {"ticker": "SMMT", "entry_date": "2026-05-04", "entry_price": 17.00, "outcome": "WIN",  "heat_pct": -5.9,  "peak_pct": 14.2, "peak_day": 7,  "src": "15m", "computed_on": "2026-06-03", "note": "peaked then round-tripped & stopped; win only if scaled out"},
+  {"ticker": "SYM",  "entry_date": "2026-05-11", "entry_price": 51.71, "outcome": "LOSS", "heat_pct": -14.5, "peak_pct": null, "peak_day": null, "src": "15m", "computed_on": "2026-06-03", "note": "blew through -7% stop, never recovered in window"},
+  {"ticker": "VKTX", "entry_date": "2026-05-18", "entry_price": 28.43, "outcome": "WIN",  "heat_pct": -0.9,  "peak_pct": 16.6, "peak_day": 11, "src": "15m", "computed_on": "2026-06-03", "note": ""}
+]

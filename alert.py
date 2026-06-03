@@ -125,6 +125,15 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
             lines.append("")
     lines.append(TRACK_RECORD_LINE)
     lines.append("")
+    # Heat & peak detail (auto-updates as trades close — see excursions.py)
+    try:
+        import excursions
+        blk = excursions.format_excursion_block()
+        if blk:
+            lines.append(blk)
+            lines.append("")
+    except Exception as e:
+        print(f'[telegram] excursion block skipped: {e}')
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
