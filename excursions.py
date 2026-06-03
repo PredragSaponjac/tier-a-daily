@@ -76,14 +76,25 @@ def compute_excursion(ticker: str, entry_date: str, entry_price: float):
     if df is None or len(df) == 0:
         return None
 
+    # Map each bar to a trading-day index (1 = entry day) so 'day' counts trading
+    # days, not calendar days (more meaningful to a trader).
+    tdays = sorted(set(ix.date() for ix in df.index))
+    tdidx = {d: i + 1 for i, d in enumerate(tdays)}
+
     hi_t = df['High'].idxmax()
     hi = float(df['High'].max())
     peak_pct = round((hi / entry_price - 1) * 100, 1)
     pre = df.loc[:hi_t]                       # only up to the favorable peak
     lo = float(pre['Low'].min())
     heat_pct = round((lo / entry_price - 1) * 100, 1)
-    peak_day = (hi_t.date() - e.date()).days
-    return {'heat_pct': heat_pct, 'peak_pct': peak_pct, 'peak_day': peak_day, 'src': src}
+    peak_day = tdidx[hi_t.date()]
+
+    # First bar that turned +5% green (the 'it's working' moment), trading days
+    green = df[df['High'] >= entry_price * 1.05]
+    first_green_day = tdidx[green.index[0].date()] if len(green) else None
+
+    return {'heat_pct': heat_pct, 'peak_pct': peak_pct, 'peak_day': peak_day,
+            'first_green_day': first_green_day, 'src': src}
 
 
 def add_trade(ticker, entry_date, entry_price, outcome, note=''):
@@ -117,10 +128,12 @@ def _agg(trades):
         return None
     heats = [t['heat_pct'] for t in wins]
     peaks = [t['peak_pct'] for t in wins if t['peak_pct'] is not None]
+    greens = [t.get('first_green_day') for t in wins if t.get('first_green_day') is not None]
     return {
         'n_win': len(wins),
         'heat_median': st.median(heats), 'heat_worst': min(heats),
         'peak_lo': min(peaks) if peaks else None, 'peak_hi': max(peaks) if peaks else None,
+        'green_lo': min(greens) if greens else None, 'green_hi': max(greens) if greens else None,
     }
 
 
@@ -140,9 +153,15 @@ def format_excursion_block(trades=None) -> str:
     a = _agg(trades)
     if a:
         lines.append('')
+        green = ''
+        if a['green_lo'] is not None:
+            if a['green_lo'] == a['green_hi']:
+                green = f"Winners turned green (+5%) by day {a['green_lo']}, "
+            else:
+                green = f"Winners turned green (+5%) within {a['green_lo']}–{a['green_hi']} days, "
         lines.append(
-            f"Winners took a median {a['heat_median']:+.1f}% heat (deepest {a['heat_worst']:+.1f}%) "
-            f"before running to +{a['peak_lo']:.0f}–{a['peak_hi']:.0f}% peaks within 1–2 weeks. "
+            f"{green}peaking +{a['peak_lo']:.0f}–{a['peak_hi']:.0f}% by ~1–2 weeks "
+            f"(median {a['heat_median']:+.1f}% heat first, deepest {a['heat_worst']:+.1f}%). "
             f"A normal pullback ≠ a broken trade."
         )
     return '\n'.join(lines)
