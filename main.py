@@ -22,7 +22,8 @@ from dotenv import load_dotenv
 from scanner_reader import read_tier_a
 from uw_filter import enrich_candidates
 from vetoes import run_vetoes
-from alert import format_signal, format_no_signal, send_telegram
+from alert import format_signal, format_no_signal, format_quota_blocked, send_telegram
+import uw_client as uwc
 import parameters as P
 import position_tracker as PT
 import archive
@@ -45,6 +46,7 @@ def main():
     min_score = args.min_score if args.min_score is not None else P.min_filter_score()
 
     load_dotenv()
+    uwc.reset_quota_flag()   # clear daily-quota tripwire for a fresh run
 
     # 1. Read Tier A candidates
     candidates, scan_date = read_tier_a(args.scan_date)
@@ -100,6 +102,23 @@ def main():
                 and (c['filter'].get('score') or 0) >= min_score), None)
 
     if top is None:
+        # Fail-safe: if UW's daily quota was exhausted, we could NOT see the flow
+        # for some/all candidates — so a "no setups" message would be a false
+        # negative. Report the quota block honestly and post NO trade instead.
+        if uwc.quota_exhausted():
+            n_unscored = sum(1 for c in enriched
+                             if c['filter'].get('error') == 'uw_quota_exhausted')
+            print(f"\nUW DAILY QUOTA EXHAUSTED — {n_unscored} candidate(s) unscored. "
+                  f"Posting fail-safe (no trade).")
+            msg = format_quota_blocked(scan_date, len(candidates), n_unscored)
+            print(f"\n--- ALERT ---\n{msg}\n")
+            if not args.dry_run:
+                ok = send_telegram(msg)
+                print(f"Telegram send: {'OK' if ok else 'FAILED'}")
+                archive.archive_daily_run(scan_date, enriched, None, min_score, P.version(),
+                                          notes='UW daily quota exhausted — flow scoring unavailable, no trade (fail-safe).')
+            return
+
         print(f"\nNo candidate passed vetoes AND score >= {min_score}. No alert.")
         msg = format_no_signal(scan_date, len(candidates), len(vetoed))
         print(f"\n--- ALERT ---\n{msg}\n")

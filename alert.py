@@ -146,6 +146,23 @@ def format_no_signal(scan_date: str, n_candidates: int, n_vetoed: int) -> str:
     )
 
 
+def format_quota_blocked(scan_date: str, n_candidates: int, n_unscored: int) -> str:
+    """Fail-safe post when UW's daily quota was exhausted mid-run.
+
+    We do NOT claim 'no setups' — that would be a false negative. We say plainly
+    that flow scoring was unavailable and no trade is posted as a safeguard.
+    """
+    return (
+        f"📅 Tier A Daily — {scan_date}\n\n"
+        f"⚠️ Flow scoring unavailable today — UW daily data limit was hit "
+        f"before all candidates could be evaluated.\n"
+        f"{n_candidates} Tier A skew candidate(s) surfaced; {n_unscored} could "
+        f"not be flow-scored.\n"
+        f"NO trade posted (fail-safe — we never fire without confirming flow).\n"
+        f"{_next_trading_day_phrase(scan_date)}"
+    )
+
+
 def format_close(ticker: str, entry: float, exit_price: float, reason: str) -> str:
     """Phase 2: format close alert (TP1 hit, stop hit, timeout)."""
     ret = (exit_price / entry - 1) * 100

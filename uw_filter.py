@@ -9,6 +9,7 @@ Per research_uw_picker_v1.md, score = 0-4 across:
 Returns enriched candidate dict with score + breakdown.
 """
 import statistics
+import uw_client as uwc
 from uw_client import cached_get
 import parameters as P
 
@@ -61,6 +62,10 @@ def compute_score(ticker: str, entry_date: str, pull_dp: bool = True,
                           params={'limit': str(vol_days)},
                           cache_date=entry_date)  # cache key includes entry date
     if not vol_data or 'data' not in vol_data:
+        # Distinguish "UW daily quota exhausted" from "genuinely no data" — the
+        # former must NOT be reported as a clean no-setup day (fail-safe, retry).
+        if uwc.quota_exhausted():
+            return {'score': None, 'conditions': {}, 'raw': {}, 'error': 'uw_quota_exhausted'}
         return {'score': None, 'conditions': {}, 'raw': {}, 'error': 'no options-volume data'}
 
     rows_sorted = sorted(vol_data['data'], key=lambda r: r.get('date', ''))

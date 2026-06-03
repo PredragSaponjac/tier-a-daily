@@ -13,6 +13,23 @@ _LAST_CALL = [0.0]
 # 0.55s pause = ~109/min, gives 9% safety buffer under the 120/min cap.
 RATE_LIMIT_SECONDS = 0.55
 
+# Daily-quota tripwire. A 429 whose body mentions the DAILY limit means every
+# subsequent call today will also fail — so we flip this flag and stop wasting
+# retries. Downstream (uw_filter / main) reads it to tell "UW quota exhausted"
+# apart from "genuinely no data", so the bot never prints a false NO TRADE when
+# it simply couldn't see the flow. Reset at the start of each fresh run.
+_QUOTA_HIT = [False]
+
+
+def quota_exhausted() -> bool:
+    """True if a daily-request-limit 429 was seen during this process run."""
+    return _QUOTA_HIT[0]
+
+
+def reset_quota_flag():
+    """Clear the daily-quota tripwire (call once at the start of a run)."""
+    _QUOTA_HIT[0] = False
+
 
 def _rate_limit():
     elapsed = time.time() - _LAST_CALL[0]
@@ -34,6 +51,15 @@ def _get(endpoint: str, params: dict = None, timeout: int = 30, max_retries: int
             if resp.status_code == 200:
                 return resp.json()
             if resp.status_code == 429:
+                body = (resp.text or '').lower()
+                if 'daily' in body or 'daily_request_limit' in body:
+                    # Daily cap hit — retrying is futile; trip the tripwire and
+                    # bail so callers can report "quota exhausted", not "no data".
+                    if not _QUOTA_HIT[0]:
+                        print('  [uw] DAILY request limit hit — flow scoring unavailable for the rest of today.')
+                    _QUOTA_HIT[0] = True
+                    return None
+                # Per-minute burst — back off and retry.
                 time.sleep(2.0)
                 continue
             if resp.status_code in (403, 404):
