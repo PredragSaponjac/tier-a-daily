@@ -122,12 +122,20 @@ def _manual_rows():
         else:
             res_con = 'no'
         days_to_mfe = (t['peak_day'] - 1) if t.get('peak_day') else ''   # trading days after entry
+        # UW verdict: Yes if the UW composite (>=3/4) confirms it, else No (with score).
+        uw_score = t.get('uw_score')
+        if uw_score is None:
+            uw = '—'
+        elif uw_score >= 3:
+            uw = f'Yes ({uw_score}/4)'
+        else:
+            uw = f'No ({uw_score}/4)'
         out.append([
             t['ticker'], t['entry_date'], t.get('entry_price', ''),
             res_tp1, _d(tp1d), t.get('also_reached', '—'),
             res_con, _d(conservd),
             _pct(t.get('heat_pct')), _pct(peak), days_to_mfe,
-            t.get('outcome', ''), 'No', t.get('setup', ''),
+            t.get('outcome', ''), uw, t.get('setup', ''),
         ])
     return out
 
