@@ -22,10 +22,21 @@ import manual_trades as MT
 
 TAB = 'Manual Skew Trades'
 HEADER = ['ticker', 'status', 'entry_date', 'entry_price',
-          'current/exit', 'result_%', 'outcome/reason',
+          'current/exit', 'result_%', 'days_held', 'outcome/reason',
           'T1', 'T2', 'T3', 'stop',
           'MAE % (heat first)', 'MFE % (peak)', 'peak_day', 'green_day',
           'why we entered (setup)', 'note']
+
+
+def _days_held(entry_date, exit_date=None):
+    """Calendar days entry->exit (or entry->today for open trades)."""
+    import datetime as _dt
+    try:
+        e = _dt.date.fromisoformat(entry_date[:10])
+        end = _dt.date.fromisoformat(exit_date[:10]) if exit_date else _dt.date.today()
+        return (end - e).days
+    except Exception:
+        return ''
 
 
 def _client():
@@ -70,7 +81,7 @@ def build_rows():
         unreal = round((px / t['entry_price'] - 1) * 100, 1) if px else None
         rows.append([
             t['ticker'], 'OPEN', t['entry_date'], _fmt(t['entry_price']),
-            _fmt(px), _fmt(unreal, pct=True), 'live',
+            _fmt(px), _fmt(unreal, pct=True), _days_held(t['entry_date']), 'live',
             _fmt(t.get('T1')), _fmt(t.get('T2')), _fmt(t.get('T3')), _fmt(t.get('stop')),
             '', '', '', '', t.get('setup', ''), t.get('note', ''),
         ])
@@ -79,6 +90,7 @@ def build_rows():
         rows.append([
             t['ticker'], 'CLOSED', t['entry_date'], _fmt(t['entry_price']),
             _fmt(t.get('exit_price')), _fmt(t.get('result_pct'), pct=True),
+            _days_held(t['entry_date'], t.get('exit_date')),
             f"{t.get('outcome','')}/{t.get('exit_reason','') or '-'}",
             _fmt(t.get('T1')), _fmt(t.get('T2')), _fmt(t.get('T3')), _fmt(t.get('stop')),
             _fmt(t.get('heat_pct'), pct=True), _fmt(t.get('peak_pct'), pct=True),
