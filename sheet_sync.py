@@ -28,9 +28,11 @@ import position_tracker as PT
 # The detailed UW columns (z_ncp, coi_pct, poi_pct, dp_blocks_10d, dp_cumul_10d_M,
 # parameters_version) are collapsed into a single 'UW_confirmed' flag. 'notes'
 # holds a brief why-we-entered description (the setup).
-TR_HEADER = ['ticker', 'entry_date', 'entry_price', 'exit_date', 'exit_price',
-             'result_%', 'days_held', 'MAE_% (heat)', 'MFE_% (peak)', 'days_to_MFE',
-             'outcome/reason', 'UW_confirmed', 'notes (why we entered)']
+TR_HEADER = ['ticker', 'entry_date', 'entry_price',
+             'result @TP1 (+10%)', 'days→TP1', 'also reached',
+             'result @+7.5% (conserv)', 'days→+7.5%',
+             'MAE_% (heat)', 'MFE_% (peak)', 'days→MFE',
+             'outcome', 'UW_confirmed', 'notes (why we entered)']
 OP_HEADER = ['ticker','entry_date','entry_price','T1','T2','T3','STOP',
              'MAE_pct','MAE_date','MFE_pct','MFE_date',
              'filter_score','z_ncp','coi_pct','poi_pct','dp_blocks_10d',
@@ -54,8 +56,13 @@ def _pct(x):
         return ''
 
 
+def _d(x):
+    """Format a trading-day count as 'dN' or em-dash."""
+    return f"d{x}" if x else '—'
+
+
 def _bot_rows():
-    """Bot (UW) closed trades from track_record.csv -> unified schema."""
+    """Bot (UW) closed trades from track_record.csv -> unified exit-model schema."""
     import csv
     if not PT.RECORD_FILE.exists():
         return []
@@ -67,19 +74,27 @@ def _bot_rows():
                 uw = f"{int(float(score))}/4 ✅" if int(float(score)) >= 3 else f"{int(float(score))}/4"
             except Exception:
                 uw = '—'
+            tp1d = r.get('time_to_TP1_days', '')
+            res_tp1 = '+10.0%' if str(tp1d).strip() not in ('', 'None') else _pct(r.get('realized_return_pct'))
             out.append([
                 r.get('ticker', ''), r.get('entry_date', ''), r.get('entry_price', ''),
-                r.get('exit_date', ''), r.get('exit_price', ''),
-                _pct(r.get('realized_return_pct')),
-                _days_between(r.get('entry_date'), r.get('exit_date')),
+                res_tp1, _d(tp1d) if str(tp1d).strip() not in ('', 'None') else '—', '—',
+                '', '',                       # bot doesn't model the +7.5% conserv exit
                 _pct(r.get('MAE_pct')), _pct(r.get('MFE_pct')), r.get('time_to_MFE_days', ''),
-                r.get('exit_reason', ''), uw, '',
+                'WIN' if _num(r.get('realized_return_pct')) > 0 else 'LOSS', uw, '',
             ])
     return out
 
 
+def _num(x):
+    try:
+        return float(x)
+    except Exception:
+        return 0.0
+
+
 def _manual_rows():
-    """Manual (pure-skew) closed trades from closed_trades.json -> unified schema."""
+    """Manual (pure-skew) closed trades from closed_trades.json -> exit-model schema."""
     import json
     path = os.path.join(os.path.dirname(__file__), 'closed_trades.json')
     if not os.path.exists(path):
@@ -88,15 +103,31 @@ def _manual_rows():
         trades = json.load(f)
     out = []
     for t in trades:
+        peak = t.get('peak_pct')
+        tp1d = t.get('tp1_day')
+        conservd = t.get('conserv_day')
+        stopped = t.get('stop_day') is not None and tp1d is None and conservd is None
+        # result @TP1
+        if tp1d:
+            res_tp1 = '+10.0%'
+        elif stopped:
+            res_tp1 = '−7% stop'
+        else:
+            res_tp1 = f"no (peak {peak:+.1f}%)" if peak is not None else 'no'
+        # result @+7.5% conservative
+        if conservd:
+            res_con = '+7.5%'
+        elif stopped:
+            res_con = '−7% stop'
+        else:
+            res_con = 'no'
+        days_to_mfe = (t['peak_day'] - 1) if t.get('peak_day') else ''   # trading days after entry
         out.append([
             t['ticker'], t['entry_date'], t.get('entry_price', ''),
-            t.get('exit_date', ''), t.get('exit_price', ''),
-            _pct(t.get('result_pct')),
-            _days_between(t.get('entry_date'), t.get('exit_date')),
-            _pct(t.get('heat_pct')), _pct(t.get('peak_pct')),
-            t.get('days_to_mfe') if t.get('days_to_mfe') is not None else '',
-            f"{t.get('outcome','')}/{t.get('exit_reason','') or '-'}",
-            'Skew only', t.get('setup', ''),
+            res_tp1, _d(tp1d), t.get('also_reached', '—'),
+            res_con, _d(conservd),
+            _pct(t.get('heat_pct')), _pct(peak), days_to_mfe,
+            t.get('outcome', ''), 'Skew only', t.get('setup', ''),
         ])
     return out
 

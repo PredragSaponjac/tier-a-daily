@@ -123,7 +123,7 @@ def add_trade(ticker, entry_date, entry_price, outcome, note=''):
 
 def _agg(trades):
     import statistics as st
-    wins = [t for t in trades if t['outcome'] == 'WIN' and t['heat_pct'] is not None]
+    wins = [t for t in trades if str(t['outcome']).startswith('WIN') and t['heat_pct'] is not None]
     if not wins:
         return None
     heats = [t['heat_pct'] for t in wins]
