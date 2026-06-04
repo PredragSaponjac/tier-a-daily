@@ -187,8 +187,31 @@ def sync_track_record():
     ws = _ensure_tab(sh, 'Track Record', TR_HEADER)
     ws.clear()
     ws.update(values=[TR_HEADER] + rows, range_name='A1')
+    _color_outcomes(ws, rows)   # green = win, red = loss (re-applied every sync)
     print(f'[sheet] Track Record synced: {len(rows)} closed trades (bot + manual)')
     return True
+
+
+# Outcome row colors (ws.clear() wipes formatting, so we re-apply on every sync).
+_GREEN = {'red': 0.85, 'green': 0.93, 'blue': 0.83}   # win
+_RED = {'red': 0.96, 'green': 0.80, 'blue': 0.80}     # loss
+_GREY = {'red': 0.95, 'green': 0.95, 'blue': 0.95}    # open/neutral
+
+
+def _color_outcomes(ws, rows):
+    """Shade each data row green (win) / red (loss) by the 'outcome' column."""
+    last_col = chr(ord('A') + len(TR_HEADER) - 1)
+    oc_idx = TR_HEADER.index('outcome')
+    requests = []
+    for i, row in enumerate(rows, start=2):
+        oc = str(row[oc_idx]).upper()
+        color = _RED if oc.startswith('LOSS') else (_GREEN if oc.startswith('WIN') else _GREY)
+        requests.append({'range': f'A{i}:{last_col}{i}',
+                         'format': {'backgroundColor': color}})
+    try:
+        ws.batch_format(requests)
+    except Exception as e:
+        print(f'[sheet] row coloring skipped: {e}')
 
 
 def sync_open_positions():
