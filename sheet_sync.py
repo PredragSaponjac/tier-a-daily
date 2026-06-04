@@ -24,11 +24,81 @@ except ImportError:
 
 import position_tracker as PT
 
-TR_HEADER = PT.RECORD_COLUMNS
+# UNIFIED Track Record schema (manual skew trades + bot UW trades in ONE tab).
+# The detailed UW columns (z_ncp, coi_pct, poi_pct, dp_blocks_10d, dp_cumul_10d_M,
+# parameters_version) are collapsed into a single 'UW_confirmed' flag. 'notes'
+# holds a brief why-we-entered description (the setup).
+TR_HEADER = ['ticker', 'entry_date', 'entry_price', 'exit_date', 'exit_price',
+             'result_%', 'days_held', 'MAE_% (heat)', 'MFE_% (peak)', 'days_to_MFE',
+             'outcome/reason', 'UW_confirmed', 'notes (why we entered)']
 OP_HEADER = ['ticker','entry_date','entry_price','T1','T2','T3','STOP',
              'MAE_pct','MAE_date','MFE_pct','MFE_date',
              'filter_score','z_ncp','coi_pct','poi_pct','dp_blocks_10d',
              'parameters_version','added_at']
+
+
+def _days_between(d0, d1):
+    import datetime as _dt
+    try:
+        a = _dt.date.fromisoformat(str(d0)[:10])
+        b = _dt.date.fromisoformat(str(d1)[:10])
+        return (b - a).days
+    except Exception:
+        return ''
+
+
+def _pct(x):
+    try:
+        return f'{float(x):+.1f}%'
+    except Exception:
+        return ''
+
+
+def _bot_rows():
+    """Bot (UW) closed trades from track_record.csv -> unified schema."""
+    import csv
+    if not PT.RECORD_FILE.exists():
+        return []
+    out = []
+    with PT.RECORD_FILE.open() as f:
+        for r in csv.DictReader(f):
+            score = r.get('filter_score', '')
+            try:
+                uw = f"{int(float(score))}/4 ✅" if int(float(score)) >= 3 else f"{int(float(score))}/4"
+            except Exception:
+                uw = '—'
+            out.append([
+                r.get('ticker', ''), r.get('entry_date', ''), r.get('entry_price', ''),
+                r.get('exit_date', ''), r.get('exit_price', ''),
+                _pct(r.get('realized_return_pct')),
+                _days_between(r.get('entry_date'), r.get('exit_date')),
+                _pct(r.get('MAE_pct')), _pct(r.get('MFE_pct')), r.get('time_to_MFE_days', ''),
+                r.get('exit_reason', ''), uw, '',
+            ])
+    return out
+
+
+def _manual_rows():
+    """Manual (pure-skew) closed trades from closed_trades.json -> unified schema."""
+    import json
+    path = os.path.join(os.path.dirname(__file__), 'closed_trades.json')
+    if not os.path.exists(path):
+        return []
+    with open(path, 'r', encoding='utf-8') as f:
+        trades = json.load(f)
+    out = []
+    for t in trades:
+        out.append([
+            t['ticker'], t['entry_date'], t.get('entry_price', ''),
+            t.get('exit_date', ''), t.get('exit_price', ''),
+            _pct(t.get('result_pct')),
+            _days_between(t.get('entry_date'), t.get('exit_date')),
+            _pct(t.get('heat_pct')), _pct(t.get('peak_pct')),
+            t.get('days_to_mfe') if t.get('days_to_mfe') is not None else '',
+            f"{t.get('outcome','')}/{t.get('exit_reason','') or '-'}",
+            'Skew only', t.get('setup', ''),
+        ])
+    return out
 
 
 def _client():
@@ -66,21 +136,27 @@ def _ensure_tab(sh, title, header):
 
 
 def sync_track_record():
-    """Replace the Track Record tab with current track_record.csv contents."""
-    if not PT.RECORD_FILE.exists():
-        print('[sheet] no track_record.csv yet, nothing to sync')
+    """Replace the unified Track Record tab: bot (UW) + manual (skew) closed trades,
+    sorted by entry_date. Also removes the legacy 'Manual Skew Trades' tab if present."""
+    rows = _bot_rows() + _manual_rows()
+    rows.sort(key=lambda r: str(r[1]))   # by entry_date
+    if not rows:
+        print('[sheet] no closed trades yet (bot or manual), nothing to sync')
         return False
-    import csv
-    rows = []
-    with PT.RECORD_FILE.open() as f:
-        for r in csv.DictReader(f):
-            rows.append([r.get(c, '') for c in TR_HEADER])
 
     sh = _open_sheet()
+    # Retire the old separate manual tab if it still exists.
+    try:
+        old = sh.worksheet('Manual Skew Trades')
+        sh.del_worksheet(old)
+        print('[sheet] removed legacy "Manual Skew Trades" tab (now unified)')
+    except gspread.WorksheetNotFound:
+        pass
+
     ws = _ensure_tab(sh, 'Track Record', TR_HEADER)
     ws.clear()
-    ws.update('A1', [TR_HEADER] + rows)
-    print(f'[sheet] Track Record synced: {len(rows)} closed signals')
+    ws.update(values=[TR_HEADER] + rows, range_name='A1')
+    print(f'[sheet] Track Record synced: {len(rows)} closed trades (bot + manual)')
     return True
 
 
