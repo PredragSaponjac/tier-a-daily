@@ -71,7 +71,7 @@ def _bot_rows():
         for r in csv.DictReader(f):
             score = r.get('filter_score', '')
             try:
-                uw = f"{int(float(score))}/4 ✅" if int(float(score)) >= 3 else f"{int(float(score))}/4"
+                uw = 'Yes' if int(float(score)) >= 3 else 'No'
             except Exception:
                 uw = '—'
             tp1d = r.get('time_to_TP1_days', '')
@@ -127,7 +127,7 @@ def _manual_rows():
             res_tp1, _d(tp1d), t.get('also_reached', '—'),
             res_con, _d(conservd),
             _pct(t.get('heat_pct')), _pct(peak), days_to_mfe,
-            t.get('outcome', ''), 'Skew only', t.get('setup', ''),
+            t.get('outcome', ''), 'No', t.get('setup', ''),
         ])
     return out
 
