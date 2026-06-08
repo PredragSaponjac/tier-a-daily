@@ -123,17 +123,20 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
             ru_f = runner_up['filter']
             lines.append(f"(Today's runner-up: ${runner_up['ticker']} score {ru_f.get('score','—')}/4)")
             lines.append("")
-    lines.append(TRACK_RECORD_LINE)
-    lines.append("")
-    # Heat & peak detail (auto-updates as trades close — see excursions.py)
+    # Live results line (auto, never stale) + heat & peak detail
     try:
         import excursions
+        rline = excursions.format_results_line()
+        lines.append(rline if rline else TRACK_RECORD_LINE)
+        lines.append("")
         blk = excursions.format_excursion_block()
         if blk:
             lines.append(blk)
             lines.append("")
     except Exception as e:
-        print(f'[telegram] excursion block skipped: {e}')
+        print(f'[telegram] track-record block skipped: {e}')
+        lines.append(TRACK_RECORD_LINE)
+        lines.append("")
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 

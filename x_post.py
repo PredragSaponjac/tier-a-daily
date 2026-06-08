@@ -93,15 +93,19 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     parts.append("⏱️ Short-term pullback — ~5-7 day trade (10-day max hold).")
     parts.append("Bot auto-closes at T1.")
     parts.append("")
-    # Heat & peak track record (auto-updates as trades close — see excursions.py)
+    # Live results line + heat & peak block (auto-updates as trades close)
     try:
         import excursions
+        rline = excursions.format_results_line()
+        if rline:
+            parts.append(rline)
+            parts.append("")
         blk = excursions.format_excursion_block()
         if blk:
             parts.append(blk)
             parts.append("")
     except Exception as e:
-        print(f'[x] excursion block skipped: {e}')
+        print(f'[x] track-record block skipped: {e}')
     parts.append("📊 Live track record: https://docs.google.com/spreadsheets/d/1R-PafqOjeNbReaGuM5xv5YS3xf1EvwtichPQLUKwedA")
     parts.append("")
     parts.append("⚠️ Quant research only. NOT financial advice.")

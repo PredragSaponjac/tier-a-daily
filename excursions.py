@@ -137,6 +137,46 @@ def _agg(trades):
     }
 
 
+BACKTEST_LINE = "Backtest n=63: 67% TP1 hit · 71% profitable · +5.2% avg/trade"
+
+
+def format_results_line(trades=None) -> str:
+    """Auto-generated live track record: per-trade outcome (✅/❌ +result%) +
+    W/L summary + backtest line. Never stale — pulls from closed_trades.json."""
+    if trades is None:
+        trades = load()
+    if not trades:
+        return ''
+    import datetime, statistics as st
+    parts, win_res, wins, losses = [], [], 0, 0
+    for t in trades:
+        oc = str(t.get('outcome', ''))
+        res = t.get('result_pct')
+        if oc.startswith('WIN'):
+            wins += 1
+            if res is not None:
+                win_res.append(res)
+            sign = '✅'
+        else:
+            losses += 1
+            sign = '❌'
+        rs = f" {res:+.0f}%" if res is not None else ''
+        parts.append(f"{t['ticker']} {sign}{rs}")
+    try:
+        d = datetime.date.fromisoformat(min(t['entry_date'] for t in trades)[:10])
+        since = f"{d.month}/{d.day}"
+    except Exception:
+        since = '4/20'
+    total = wins + losses
+    wr = round(100 * wins / total) if total else 0
+    avg = round(st.mean(win_res)) if win_res else 0
+    return '\n'.join([
+        f"📊 Live record (since {since}): " + " | ".join(parts),
+        f"{wins} of {total} winners ({wr}% win) · avg winner +{avg}%",
+        BACKTEST_LINE,
+    ])
+
+
 def format_excursion_block(trades=None) -> str:
     """Render the 'heat & peak' block for X / Telegram posts."""
     if trades is None:
