@@ -1,0 +1,25 @@
+{
+  "positions": [
+    {
+      "ticker": "RGTI",
+      "entry_date": "2026-06-08",
+      "entry_price": 21.76,
+      "T1": 23.94,
+      "T2": 24.15,
+      "T3": 26.11,
+      "STOP": 20.24,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 1,
+      "z_ncp": 0.227,
+      "coi_pct": 3.26,
+      "poi_pct": 5.54,
+      "dp_blocks_10d": 126,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-06-08T21:12:07.365165Z"
+    }
+  ]
+}
