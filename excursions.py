@@ -131,7 +131,7 @@ def _agg(trades):
     greens = [t.get('first_green_day') for t in wins if t.get('first_green_day') is not None]
     return {
         'n_win': len(wins),
-        'heat_median': st.median(heats), 'heat_worst': min(heats),
+        'heat_avg': st.mean(heats), 'heat_median': st.median(heats), 'heat_worst': min(heats),
         'peak_lo': min(peaks) if peaks else None, 'peak_hi': max(peaks) if peaks else None,
         'green_lo': min(greens) if greens else None, 'green_hi': max(greens) if greens else None,
     }
@@ -160,9 +160,12 @@ def format_excursion_block(trades=None) -> str:
             else:
                 green = f"Winners turned green (+5%) within {a['green_lo']}–{a['green_hi']} days, "
         lines.append(
-            f"{green}peaking +{a['peak_lo']:.0f}–{a['peak_hi']:.0f}% by ~1–2 weeks "
-            f"(median {a['heat_median']:+.1f}% heat first, deepest {a['heat_worst']:+.1f}%). "
-            f"A normal pullback ≠ a broken trade."
+            f"{green}peaking +{a['peak_lo']:.0f}–{a['peak_hi']:.0f}% by ~1–2 weeks."
+        )
+        lines.append(
+            f"📉 Avg heat before it works: {a['heat_avg']:+.1f}% "
+            f"(median {a['heat_median']:+.1f}%, deepest {a['heat_worst']:+.1f}%) — "
+            f"expect roughly this much red first. A normal pullback ≠ a broken trade."
         )
     return '\n'.join(lines)
 
