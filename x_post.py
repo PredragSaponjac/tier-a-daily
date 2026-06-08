@@ -68,6 +68,17 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     parts.append(f"🎯 Tier A Daily Signal — ${c['ticker']}")
     parts.append(f"Conviction: {conviction} ({score}/4)")
     parts.append("")
+    # SKEW SETUP (the structural read — cushion above the put wall is the key risk metric)
+    pwall = c.get('put_wall_strike')
+    cushion = ((entry / pwall - 1) * 100) if pwall else None
+    parts.append("Skew setup (Tier A — gates passed):")
+    parts.append(f"  • Spot ${entry:.2f} ({(c.get('spot_return_pct') or 0):+.1f}% / 5d)")
+    parts.append(f"  • skew_change_5d {(c.get('skew_change_5d') or 0):+.1f} · near_skew {(c.get('near_skew') or 0):+.1f}")
+    if pwall:
+        parts.append(f"  • Put wall ${pwall} → spot {cushion:+.1f}% {'above' if cushion >= 0 else 'below'} (cushion)")
+    if c.get('sector'):
+        parts.append(f"  • Sector: {c.get('sector')} · near-dte {c.get('near_dte', '?')}")
+    parts.append("")
     parts.append("UW composite filter — entry-day positioning:")
     z = r.get('z_ncp'); coi = r.get('coi_pct'); poi = r.get('poi_pct'); dp = r.get('dp_blocks_10d')
     if z is not None:   parts.append(f"  • NCP entry z-score: {z:+.2f}")
