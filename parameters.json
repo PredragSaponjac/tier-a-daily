@@ -10,6 +10,8 @@
     "require_strong_leg": true,
     "strong_skew_max": -7.0,
     "strong_vol_cushion_min": 3.0,
+    "skew_noise_std_max": 20.0,
+    "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust — NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
     "comment": "THE GATE (earned by SYM+RGTI losses, both weak-on-both). TRADEABLE only if >=1 strong leg: structural skew <= strong_skew_max (deep capitulation) OR vol-adjusted cushion >= strong_vol_cushion_min (cushion% / (ATM_IV/sqrt252) daily-moves). Weak on BOTH = NO TRADE even if it cleared the mechanical Tier A screen. Among tradeable: UW>=3 priority, else best by leg strength. Validated 7/8 vs history (only AR — weakest win, corrupt put-wall data — would've been skipped)."
   },
   "exits": {

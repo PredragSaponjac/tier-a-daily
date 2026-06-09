@@ -38,6 +38,7 @@ def selection_params() -> dict:
         'require_strong_leg': s.get('require_strong_leg', True),
         'strong_skew_max': s.get('strong_skew_max', -7.0),
         'strong_vol_cushion_min': s.get('strong_vol_cushion_min', 3.0),
+        'skew_noise_std_max': s.get('skew_noise_std_max', 20.0),
     }
 
 

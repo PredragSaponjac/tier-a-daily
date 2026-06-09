@@ -87,22 +87,33 @@ def main():
     #    structural skew leg OR a real vol-adjusted cushion leg. Weak on BOTH = no
     #    trade, even if it cleared the mechanical Tier A screen. See legs.py.
     import legs as LEGS
+    import data_quality as DQ
     sel = P.selection_params()
     for c in enriched:
         c['legs'] = LEGS.assess(c, sel['strong_skew_max'], sel['strong_vol_cushion_min'])
+        # DATA-QUALITY gate (earned by SMMT 6/9): reject signals off a noisy/thin
+        # options chain — the legs are only as trustworthy as the data they're computed on.
+        c['noise'] = DQ.assess_noise(c['ticker'], c['scan_date'],
+                                     std_threshold=sel['skew_noise_std_max'])
 
     survivors = [c for c in enriched if c['vetoes']['pass']]
     vetoed = [c for c in enriched if not c['vetoes']['pass']]
     tradeable = [c for c in survivors
-                 if (not sel['require_strong_leg']) or c['legs']['tradeable']]
+                 if ((not sel['require_strong_leg']) or c['legs']['tradeable'])
+                 and not c['noise']['noisy']]
 
     print(f"\n{'rank':>4s} {'tkr':6s} {'UW':>4s} {'veto':5s} {'legs':10s} note")
     for i, c in enumerate(enriched, 1):
         s = c['filter'].get('score', '—')
         v_status = '—' if c['vetoes']['pass'] else 'X'
         L = c['legs']
-        leg_tag = ('STRONG' if L['tradeable'] else 'NEITHER')
-        print(f"  {i:>3d} {c['ticker']:6s} {str(s):>4s} {v_status:>5s} {leg_tag:10s} {L['reason']}")
+        if c['noise']['noisy']:
+            leg_tag = 'NOISY'
+            note = c['noise']['reason']
+        else:
+            leg_tag = ('STRONG' if L['tradeable'] else 'NEITHER')
+            note = L['reason']
+        print(f"  {i:>3d} {c['ticker']:6s} {str(s):>4s} {v_status:>5s} {leg_tag:10s} {note}")
 
     # 5. Pick top: UW >= min_score is a PRIORITY (picked first); if none of the
     #    tradeable candidates is UW-confirmed, fire the BEST tradeable by leg
