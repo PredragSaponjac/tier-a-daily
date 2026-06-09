@@ -62,6 +62,8 @@ def read_tier_a(scan_date: str = None) -> list[dict]:
             'spot_return_pct': r['spot_return_pct'],
             'skew_change_5d': r['skew_change_5d'],
             'near_skew': r['near_skew'],
+            'skew': r['skew'],            # structural skew level (for strong-skew leg)
+            'atm_iv': r['atm_iv'],        # for vol-adjusted cushion leg
             'near_dte': r['near_dte'],
             'put_wall_strike': r['put_wall_strike'],
             'put_wall_oi_change': r['put_wall_oi_change'],

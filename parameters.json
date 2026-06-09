@@ -4,7 +4,13 @@
   "regime_note": "Initial launch parameters from research_uw_picker_v1. Pre-self-review baseline.",
   "entry": {
     "min_filter_score": 3,
-    "min_filter_score_comment": "3 = exceptional-only: alert ONLY when >=3 of 4 UW conditions confirm (matches the research edge). 1 = any Tier A with >=1 UW condition (test/loose, do not use live)."
+    "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate — best tradeable candidate fires even at UW<3."
+  },
+  "selection": {
+    "require_strong_leg": true,
+    "strong_skew_max": -7.0,
+    "strong_vol_cushion_min": 3.0,
+    "comment": "THE GATE (earned by SYM+RGTI losses, both weak-on-both). TRADEABLE only if >=1 strong leg: structural skew <= strong_skew_max (deep capitulation) OR vol-adjusted cushion >= strong_vol_cushion_min (cushion% / (ATM_IV/sqrt252) daily-moves). Weak on BOTH = NO TRADE even if it cleared the mechanical Tier A screen. Among tradeable: UW>=3 priority, else best by leg strength. Validated 7/8 vs history (only AR — weakest win, corrupt put-wall data — would've been skipped)."
   },
   "exits": {
     "tp1_pct": 10.0,

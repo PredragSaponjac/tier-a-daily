@@ -82,24 +82,41 @@ def main():
     for c in enriched:
         c['vetoes'] = run_vetoes(c)
 
-    # 4. Rank survivors
+    # 4. Apply the ≥1-STRONG-LEG gate (THE rule earned by the SYM + RGTI losses,
+    #    both weak-on-both) + rank. A candidate is TRADEABLE only if it has a deep
+    #    structural skew leg OR a real vol-adjusted cushion leg. Weak on BOTH = no
+    #    trade, even if it cleared the mechanical Tier A screen. See legs.py.
+    import legs as LEGS
+    sel = P.selection_params()
+    for c in enriched:
+        c['legs'] = LEGS.assess(c, sel['strong_skew_max'], sel['strong_vol_cushion_min'])
+
     survivors = [c for c in enriched if c['vetoes']['pass']]
     vetoed = [c for c in enriched if not c['vetoes']['pass']]
-    print(f"\n{'rank':>4s} {'tkr':6s} {'score':>5s} {'veto':6s} status")
+    tradeable = [c for c in survivors
+                 if (not sel['require_strong_leg']) or c['legs']['tradeable']]
+
+    print(f"\n{'rank':>4s} {'tkr':6s} {'UW':>4s} {'veto':5s} {'legs':10s} note")
     for i, c in enumerate(enriched, 1):
         s = c['filter'].get('score', '—')
         v_status = '—' if c['vetoes']['pass'] else 'X'
-        v_reason = '; '.join(c['vetoes']['reasons']) if c['vetoes']['reasons'] else ''
-        print(f"  {i:>3d} {c['ticker']:6s} {str(s):>5s} {v_status:>6s} {v_reason}")
+        L = c['legs']
+        leg_tag = ('STRONG' if L['tradeable'] else 'NEITHER')
+        print(f"  {i:>3d} {c['ticker']:6s} {str(s):>4s} {v_status:>5s} {leg_tag:10s} {L['reason']}")
 
-    # 5. Pick top
-    # None-safe: a candidate whose UW score could not be computed (no
-    # options-volume data / insufficient pre-window) has score None. Coerce
-    # None -> 0 so it is simply filtered out (can't confirm flow = don't fire)
-    # instead of crashing the comparison. Same guard for a missing veto pass.
-    top = next((c for c in enriched
-                if c['vetoes'].get('pass')
-                and (c['filter'].get('score') or 0) >= min_score), None)
+    # 5. Pick top: UW >= min_score is a PRIORITY (picked first); if none of the
+    #    tradeable candidates is UW-confirmed, fire the BEST tradeable by leg
+    #    strength (number of strong legs, then vol-cushion). Weak-on-both already
+    #    excluded above, so a "neither" candidate can never be picked.
+    def _rank_key(c):
+        sc = c['filter'].get('score') or 0
+        L = c['legs']
+        n_legs = int(L['strong_skew']) + int(L['strong_cushion'])
+        # UW-confirmed (>=min_score) FIRST; then rank by STRUCTURE (number of strong
+        # legs, then vol-cushion). The raw sub-threshold UW score is only the final
+        # tiebreaker — so a UW-1 falling knife never outranks a UW-0 well-cushioned name.
+        return (sc >= min_score, n_legs, L['vol_cushion'] or -999, sc)
+    top = max(tradeable, key=_rank_key) if tradeable else None
 
     if top is None:
         # Fail-safe: if UW's daily quota was exhausted, we could NOT see the flow

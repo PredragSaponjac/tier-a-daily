@@ -31,6 +31,16 @@ def min_filter_score() -> int:
     return _load()['entry']['min_filter_score']
 
 
+def selection_params() -> dict:
+    """The ≥1-strong-leg gate config (defaults if section missing)."""
+    s = _load().get('selection', {})
+    return {
+        'require_strong_leg': s.get('require_strong_leg', True),
+        'strong_skew_max': s.get('strong_skew_max', -7.0),
+        'strong_vol_cushion_min': s.get('strong_vol_cushion_min', 3.0),
+    }
+
+
 def tp_pcts() -> dict:
     e = _load()['exits']
     return {'tp1': e['tp1_pct'], 'tp2': e['tp2_pct'], 'tp3': e['tp3_pct']}

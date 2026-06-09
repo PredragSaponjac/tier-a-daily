@@ -151,9 +151,10 @@ def format_no_signal(scan_date: str, n_candidates: int, n_vetoed: int) -> str:
         )
     return (
         f"📅 Tier A Daily — {scan_date}\n\n"
-        f"{n_candidates} Tier A candidate(s) surfaced but {n_vetoed} vetoed and "
-        f"none passed the composite filter strongly enough to alert.\n"
-        f"NO TRADE today.\n"
+        f"{n_candidates} Tier A candidate(s) surfaced, but none qualified — each was "
+        f"either vetoed or WEAK ON BOTH legs (no deep skew capitulation AND no real "
+        f"vol-adjusted cushion).\n"
+        f"NO TRADE today — we don't force weak-on-both setups (the SYM/RGTI lesson).\n"
         f"{_next_trading_day_phrase(scan_date)}"
     )
 
