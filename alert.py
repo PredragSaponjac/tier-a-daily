@@ -159,6 +159,33 @@ def format_no_signal(scan_date: str, n_candidates: int, n_vetoed: int) -> str:
     )
 
 
+def format_watch_list(watch: list) -> str:
+    """Blocked-but-notable candidates — shown so the user can eyeball and decide
+    manually. NOT auto-traded. Flow can be right even when structure says wait
+    (e.g. CAVA 6/8 was UW 3/4 but weak-on-both → we skipped, it ran +11%)."""
+    if not watch:
+        return ''
+    lines = ['', '— — — — — — — — — —',
+             '📋 WATCH LIST — surfaced but NOT auto-traded (your call):',
+             '(held back by the gate; flow can be right even when structure says wait — e.g. CAVA 6/8 +11%)']
+    for c in watch:
+        score = c['filter'].get('score') or 0
+        conv = '⭐' * score + '☆' * (4 - score)
+        L = c.get('legs', {})
+        skew = c.get('skew')
+        vc = L.get('vol_cushion')
+        if c.get('noise', {}).get('noisy'):
+            why = f"NOISY chain (skew std {c['noise']['skew_std']:.0f})"
+        elif L.get('cushion_pct') is not None and L.get('cushion_pct') < 0:
+            why = 'spot below put wall'
+        else:
+            why = 'weak on both legs'
+        skew_s = f"{skew:+.0f}" if skew is not None else '?'
+        vc_s = f"{vc:.1f}x" if vc is not None else '?'
+        lines.append(f"  • {c['ticker']:<5s} UW {score}/4 {conv} | skew {skew_s}, cushion {vc_s} | {why}")
+    return '\n'.join(lines)
+
+
 def format_quota_blocked(scan_date: str, n_candidates: int, n_unscored: int) -> str:
     """Fail-safe post when UW's daily quota was exhausted mid-run.
 

@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from scanner_reader import read_tier_a
 from uw_filter import enrich_candidates
 from vetoes import run_vetoes
-from alert import format_signal, format_no_signal, format_quota_blocked, send_telegram
+from alert import format_signal, format_no_signal, format_quota_blocked, format_watch_list, send_telegram
 import uw_client as uwc
 import parameters as P
 import position_tracker as PT
@@ -129,6 +129,19 @@ def main():
         return (sc >= min_score, n_legs, L['vol_cushion'] or -999, sc)
     top = max(tradeable, key=_rank_key) if tradeable else None
 
+    # WATCH LIST: survivors the gate blocked, but worth eyeballing (esp. strong UW
+    # flow like CAVA — flow can be right even when structure says wait). NOT auto-
+    # traded; surfaced in the Telegram alert for a manual call. Ranked by UW, then
+    # leg strength; top 5.
+    _trade_tks = {c['ticker'] for c in tradeable}
+    blocked = [c for c in survivors if c['ticker'] not in _trade_tks]
+    def _watch_key(c):
+        sc = c['filter'].get('score') or 0
+        L = c['legs']
+        return (sc, int(L['strong_skew']) + int(L['strong_cushion']), L['vol_cushion'] or -999)
+    watch = sorted(blocked, key=_watch_key, reverse=True)[:5]
+    watch_block = format_watch_list(watch)
+
     if top is None:
         # Fail-safe: if UW's daily quota was exhausted, we could NOT see the flow
         # for some/all candidates — so a "no setups" message would be a false
@@ -148,7 +161,7 @@ def main():
             return
 
         print(f"\nNo candidate passed vetoes AND score >= {min_score}. No alert.")
-        msg = format_no_signal(scan_date, len(candidates), len(vetoed))
+        msg = format_no_signal(scan_date, len(candidates), len(vetoed)) + watch_block
         print(f"\n--- ALERT ---\n{msg}\n")
         if not args.dry_run:
             ok = send_telegram(msg)
@@ -159,7 +172,7 @@ def main():
 
     # Day pool for runner-up context
     day_pool = [c for c in survivors if c['ticker'] != top['ticker']]
-    msg = format_signal(top, day_pool)
+    msg = format_signal(top, day_pool) + watch_block
     print(f"\n--- ALERT ---\n{msg}\n")
 
     if args.dry_run:
