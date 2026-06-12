@@ -64,14 +64,27 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     T1 = entry * (1 + tps['tp1']/100)
     STOP = entry * (1 + P.stop_pct()/100)
 
+    L = c.get('legs', {})
+    _legs = []
+    if L.get('strong_skew'):
+        _legs.append('deep skew capitulation')
+    if L.get('strong_cushion'):
+        _legs.append('big cushion')
+    if len(_legs) == 2:
+        _setup = f"💪 Setup: STRONG — {' + '.join(_legs)}"
+    elif len(_legs) == 1:
+        _setup = f"✅ Setup: SOLID — {_legs[0]}"
+    else:
+        _setup = "✅ Setup: Tier A (skew gates passed)"
+
     parts = []
     parts.append(f"🎯 Tier A Daily Signal — ${c['ticker']}")
-    parts.append(f"Conviction: {conviction} ({score}/4)")
+    parts.append(_setup)
     parts.append("")
     # SKEW SETUP (the structural read — cushion above the put wall is the key risk metric)
     pwall = c.get('put_wall_strike')
     cushion = ((entry / pwall - 1) * 100) if pwall else None
-    parts.append("Skew setup (Tier A — gates passed):")
+    parts.append("Skew setup — THE SIGNAL (Tier A gates passed):")
     parts.append(f"  • Spot ${entry:.2f} ({(c.get('spot_return_pct') or 0):+.1f}% / 5d)")
     parts.append(f"  • skew_change_5d {(c.get('skew_change_5d') or 0):+.1f} · near_skew {(c.get('near_skew') or 0):+.1f}")
     if pwall:
@@ -79,7 +92,7 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     if c.get('sector'):
         parts.append(f"  • Sector: {c.get('sector')} · near-dte {c.get('near_dte', '?')}")
     parts.append("")
-    parts.append("UW composite filter — entry-day positioning:")
+    parts.append(f"🔎 UW flow — bonus confirmation only, NOT the signal ({score}/4):")
     z = r.get('z_ncp'); coi = r.get('coi_pct'); poi = r.get('poi_pct'); dp = r.get('dp_blocks_10d')
     if z is not None:   parts.append(f"  • NCP entry z-score: {z:+.2f}")
     if coi is not None: parts.append(f"  • Call OI 10d: {coi:+.1f}%")

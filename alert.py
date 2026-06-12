@@ -61,14 +61,29 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     T3 = entry * (1 + tps['tp3'] / 100)
     STOP = entry * (1 + stop_p / 100)
     score = f.get('score', 0) or 0
-    conviction = '⭐' * score + '☆' * (4 - score)
+    L = c.get('legs', {})
+    # SETUP STRENGTH is driven by the SKEW SETUP itself (the actual signal) — a deep
+    # skew capitulation leg and/or a big vol-adjusted cushion leg. UW flow is a
+    # SEPARATE bonus-confirmation layer shown lower down; it is NOT the signal and a
+    # 0/4 does NOT make the trade weak.
+    legs_on = []
+    if L.get('strong_skew'):
+        legs_on.append('deep skew capitulation')
+    if L.get('strong_cushion'):
+        legs_on.append('big cushion')
+    if len(legs_on) == 2:
+        setup_str = f"💪 SETUP STRENGTH: STRONG — {' + '.join(legs_on)}"
+    elif len(legs_on) == 1:
+        setup_str = f"✅ SETUP STRENGTH: SOLID — {legs_on[0]}"
+    else:
+        setup_str = "✅ SETUP: Tier A (skew gates passed)"
 
     lines = []
     lines.append(f"🎯 NEW Tier A Signal — ${c['ticker']}")
-    lines.append(f"CONVICTION: {conviction} ({score}/4)")
+    lines.append(setup_str)
     lines.append("")
     lines.append("")
-    lines.append("SKEW SETUP (Tier A — all gates passed):")
+    lines.append("SKEW SETUP — THE SIGNAL (Tier A gates passed):")
     lines.append(f"• Spot ${entry:.2f} ({c['spot_return_pct']:+.1f}% / 5d)")
     lines.append(f"• skew_change_5d: {c['skew_change_5d']:+.1f} (Tier A bar ≤ −7)")
     lines.append(f"• near_skew: {c['near_skew']:+.1f} (Tier A bar ≤ −7)")
@@ -78,7 +93,7 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     if v and v.get('details', {}).get('earnings', {}).get('next_earnings'):
         lines.append(f"• Next earnings: {v['details']['earnings']['next_earnings']}")
     lines.append("")
-    lines.append("UW INSTITUTIONAL POSITIONING (research-derived):")
+    lines.append(f"🔎 UW INSTITUTIONAL FLOW — supplementary confirmation only, NOT the signal ({score}/4):")
     conds = f.get('conditions', {})
     for key, cond in conds.items():
         check = "✅" if cond['pass'] else "❌"
@@ -103,11 +118,12 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     # setup is present but flow is not confirming - never attach the p=0.0007
     # research claim to a setup that doesn't match the full pattern.
     if score >= 3:
-        lines.append("Matches the 'structural unwind + entry capitulation' pattern from")
-        lines.append("research_uw_picker_v1 (Bonferroni-significant, p=0.0007).")
+        lines.append(f"→ Flow CONFIRMS ({score}/4): matches the 'structural unwind + capitulation'")
+        lines.append("  research pattern (Bonferroni-significant, p=0.0007) — adds conviction on top.")
     else:
-        lines.append("Skew setup present, but institutional flow is NOT confirming the")
-        lines.append("full 'structural unwind + capitulation' pattern — lower conviction.")
+        lines.append(f"→ Flow {score}/4: no extra institutional confirmation today. This is a BONUS")
+        lines.append("  layer, NOT a requirement — the Tier A skew setup above IS the signal and")
+        lines.append("  stands on its own. (A 0/4 does not make the setup weak.)")
     lines.append("")
     lines.append(f"ENTRY: ${entry:.2f}")
     lines.append(f"🎯 T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%) — bot will auto-close here")

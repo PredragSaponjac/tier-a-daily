@@ -1,3 +1,25 @@
 {
-  "positions": []
+  "positions": [
+    {
+      "ticker": "MDB",
+      "entry_date": "2026-06-12",
+      "entry_price": 342.8,
+      "T1": 377.08000000000004,
+      "T2": 380.50800000000004,
+      "T3": 411.36,
+      "STOP": 318.804,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 0,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-06-12T21:20:41.849276Z"
+    }
+  ]
 }
