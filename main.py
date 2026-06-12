@@ -192,10 +192,24 @@ def main():
             print(f"Position tracker: {'added' if added else 'already tracking (idempotent skip)'}")
             # Archive the full daily record (all candidates + picked)
             archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version())
-            # Optional: post to X if creds present
+            # X auto-posting is GATED OFF by default. A bad/unstable pick must NEVER
+            # auto-publish to a public account again (see the 2026-06-12 RUM incident:
+            # a micro-cap whose skew flipped bearish intraday was auto-posted before
+            # anyone could look). The bot now PREPARES the post and saves it as a draft
+            # for manual review; it only auto-posts if ENABLE_X_AUTOPOST is explicitly set.
             x_msg = x_post.format_signal_for_x(top, [c for c in survivors if c['ticker'] != top['ticker']])
-            x_ok = x_post.post_to_x(x_msg)
-            if x_ok: print('X post: OK')
+            if os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() in ('1', 'true', 'yes'):
+                x_ok = x_post.post_to_x(x_msg)
+                if x_ok: print('X post: OK')
+            else:
+                try:
+                    os.makedirs('x_drafts', exist_ok=True)
+                    draft = f"x_drafts/{scan_date}_{top['ticker']}.txt"
+                    with open(draft, 'w', encoding='utf-8') as fh:
+                        fh.write(x_msg)
+                    print(f"X auto-post DISABLED (safe default) — draft saved to {draft} for manual review.")
+                except Exception as e:
+                    print(f"X auto-post disabled; draft save failed: {e}")
             # Optional: sync Google Sheet if configured
             sheet_sync.sync_all()
 
