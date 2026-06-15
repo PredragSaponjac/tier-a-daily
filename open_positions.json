@@ -41,6 +41,27 @@
       "dp_cumul_10d_M": null,
       "parameters_version": "1.0.0",
       "added_at": "2026-06-15T21:24:01.685310Z"
+    },
+    {
+      "ticker": "ADSK",
+      "entry_date": "2026-06-15",
+      "entry_price": 198.6,
+      "T1": 218.46,
+      "T2": 220.44600000000003,
+      "T3": 238.32,
+      "STOP": 184.69799999999998,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 1,
+      "z_ncp": 1.02,
+      "coi_pct": 36.1,
+      "poi_pct": 3.2,
+      "dp_blocks_10d": 238,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-06-15T21:56:49.940919Z"
     }
   ]
 }
