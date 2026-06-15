@@ -20,6 +20,27 @@
       "dp_cumul_10d_M": null,
       "parameters_version": "1.0.0",
       "added_at": "2026-06-12T21:20:41.849276Z"
+    },
+    {
+      "ticker": "NNE",
+      "entry_date": "2026-06-15",
+      "entry_price": 25.08,
+      "T1": 27.588,
+      "T2": 27.8388,
+      "T3": 30.095999999999997,
+      "STOP": 23.324399999999997,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 0,
+      "z_ncp": 0.352,
+      "coi_pct": 18.59,
+      "poi_pct": 20.73,
+      "dp_blocks_10d": 9,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-06-15T21:24:01.685310Z"
     }
   ]
 }
