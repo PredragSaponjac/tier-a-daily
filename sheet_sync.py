@@ -235,6 +235,28 @@ def _color_outcomes(ws, rows):
         print(f'[sheet] row coloring skipped: {e}')
 
 
+def _color_pnl(ws, rows):
+    """Shade the pnl_pct_now CELL green (profit) / red (loss) each sync.
+    (ws.clear() wipes formatting, so this re-applies every Open Positions sync.)"""
+    col_idx = OP_HEADER.index('pnl_pct_now')
+    col = chr(ord('A') + col_idx)
+    requests = []
+    for i, row in enumerate(rows, start=2):
+        val = str(row[col_idx]).strip()
+        if val.startswith('+'):
+            color = _GREEN
+        elif val.startswith('-') or val.startswith('−'):
+            color = _RED
+        else:
+            continue
+        requests.append({'range': f'{col}{i}', 'format': {'backgroundColor': color}})
+    if requests:
+        try:
+            ws.batch_format(requests)
+        except Exception as e:
+            print(f'[sheet] pnl coloring skipped: {e}')
+
+
 def sync_open_positions():
     """Replace the Open Positions tab with current open_positions.json."""
     sh = _open_sheet()
@@ -255,6 +277,7 @@ def sync_open_positions():
         p['days_held'] = _days_between(p.get('entry_date'), _dt.date.today().isoformat())
         rows.append([p.get(c, '') for c in OP_HEADER])
     ws.update(values=[OP_HEADER] + rows, range_name='A1')
+    _color_pnl(ws, rows)   # green = in profit, red = underwater (re-applied every sync)
     print(f'[sheet] Open Positions synced: {len(rows)} open')
     return True
 
