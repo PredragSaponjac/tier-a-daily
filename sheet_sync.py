@@ -33,10 +33,23 @@ TR_HEADER = ['ticker', 'entry_date', 'entry_price',
              'result @+7.5% (conserv)', 'days→+7.5%',
              'MAE_% (heat)', 'MFE_% (peak)', 'days→MFE',
              'outcome', 'UW_confirmed', 'notes (why we entered)']
-OP_HEADER = ['ticker','entry_date','entry_price','T1','T2','T3','STOP',
+OP_HEADER = ['ticker','entry_date','entry_price','now_price','pnl_pct_now','days_held',
+             'T1','T2','T3','STOP',
              'MAE_pct','MAE_date','MFE_pct','MFE_date',
              'filter_score','z_ncp','coi_pct','poi_pct','dp_blocks_10d',
              'parameters_version','added_at']
+
+
+def _current_price(ticker):
+    """Latest close for an open ticker (None if unavailable / throttled)."""
+    try:
+        import yfinance as yf
+        d = yf.Ticker(ticker).history(period='5d', interval='1d', auto_adjust=True)
+        if d is None or len(d) == 0:
+            return None
+        return float(d['Close'].iloc[-1])
+    except Exception:
+        return None
 
 
 def _days_between(d0, d1):
@@ -227,10 +240,21 @@ def sync_open_positions():
     sh = _open_sheet()
     ws = _ensure_tab(sh, 'Open Positions', OP_HEADER)
     ws.clear()
+    import datetime as _dt
     rows = []
     for p in PT.list_open():
+        p = dict(p)  # copy so we can inject live fields
+        entry = p.get('entry_price')
+        now = _current_price(p.get('ticker'))
+        if now and entry:
+            p['now_price'] = round(now, 2)
+            p['pnl_pct_now'] = f"{(now / entry - 1) * 100:+.1f}%"
+        else:
+            p['now_price'] = ''
+            p['pnl_pct_now'] = ''
+        p['days_held'] = _days_between(p.get('entry_date'), _dt.date.today().isoformat())
         rows.append([p.get(c, '') for c in OP_HEADER])
-    ws.update('A1', [OP_HEADER] + rows)
+    ws.update(values=[OP_HEADER] + rows, range_name='A1')
     print(f'[sheet] Open Positions synced: {len(rows)} open')
     return True
 
