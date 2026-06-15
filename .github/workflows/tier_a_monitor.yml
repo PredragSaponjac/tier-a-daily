@@ -52,4 +52,4 @@ jobs:
           git config user.email "bot@tieradaily.local"
           git add open_positions.json track_record.csv 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Monitor run $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push || true
+          git push || (git pull --rebase --autostash && git push) || true

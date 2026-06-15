@@ -58,4 +58,4 @@ jobs:
           DATE=$(date -u +%Y-%m-%d)
           git add skew_history.db 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE AM (auto)"
-          git push || true
+          git push || (git pull --rebase --autostash && git push) || true

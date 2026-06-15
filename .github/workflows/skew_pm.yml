@@ -64,7 +64,7 @@ jobs:
           DATE=$(date -u +%Y-%m-%d)
           git add skew_history.db 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE PM (auto)"
-          git push || true
+          git push || (git pull --rebase --autostash && git push) || true
 
       # ===== STEP 3: SCANNER + FILTER + ALERTS (the bot) =====
       - name: Run Tier A Daily bot (scanner + UW filter + Telegram + X + Sheet)
@@ -96,4 +96,4 @@ jobs:
         run: |
           git add signals/ open_positions.json track_record.csv 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"
-          git push || true
+          git push || (git pull --rebase --autostash && git push) || true
