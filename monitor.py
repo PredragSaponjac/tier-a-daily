@@ -116,6 +116,18 @@ def main():
         else:
             print(f"  [{pos['ticker']}] still open  MAE={pos.get('MAE_pct',0):+.2f}%  MFE={pos.get('MFE_pct',0):+.2f}%")
 
+    # Push updated MAE/MFE (and any closes) to the Google Sheet. The monitor was
+    # updating open_positions.json every run but NEVER syncing the sheet, so the
+    # sheet's MAE/MFE columns sat at 0 forever (the 2026-06-15 MDB "not tracking"
+    # issue — it WAS tracking, the sheet just never got refreshed).
+    if not args.dry_run:
+        try:
+            import sheet_sync
+            sheet_sync.sync_all()
+            print('Sheet synced (MAE/MFE + open/closed positions).')
+        except Exception as e:
+            print(f'Sheet sync skipped: {e}')
+
     print(f'\nClosed this run: {closed_count}  |  Still open: {len(positions) - closed_count}')
 
 
