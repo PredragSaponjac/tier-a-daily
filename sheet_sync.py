@@ -207,7 +207,7 @@ def sync_track_record():
 
     ws = _ensure_tab(sh, 'Track Record', TR_HEADER)
     ws.clear()
-    ws.update(values=[TR_HEADER] + rows, range_name='A1')
+    ws.update(values=[TR_HEADER] + _round_rows(rows), range_name='A1')
     _color_outcomes(ws, rows)   # green = win, red = loss (re-applied every sync)
     print(f'[sheet] Track Record synced: {len(rows)} closed trades (bot + manual)')
     return True
@@ -217,6 +217,12 @@ def sync_track_record():
 _GREEN = {'red': 0.85, 'green': 0.93, 'blue': 0.83}   # win
 _RED = {'red': 0.96, 'green': 0.80, 'blue': 0.80}     # loss
 _GREY = {'red': 0.95, 'green': 0.95, 'blue': 0.95}    # open/neutral
+
+
+def _round_rows(rows):
+    """Round every float cell to 2 decimals so the sheet shows clean numbers
+    (no 20.72546892). Ints, strings, dates, None pass through untouched."""
+    return [[round(v, 2) if isinstance(v, float) else v for v in row] for row in rows]
 
 
 def _color_outcomes(ws, rows):
@@ -276,6 +282,7 @@ def sync_open_positions():
             p['pnl_pct_now'] = ''
         p['days_held'] = _days_between(p.get('entry_date'), _dt.date.today().isoformat())
         rows.append([p.get(c, '') for c in OP_HEADER])
+    rows = _round_rows(rows)
     ws.update(values=[OP_HEADER] + rows, range_name='A1')
     _color_pnl(ws, rows)   # green = in profit, red = underwater (re-applied every sync)
     print(f'[sheet] Open Positions synced: {len(rows)} open')
