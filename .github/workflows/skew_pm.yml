@@ -5,8 +5,10 @@ name: Skew PM - auto scan + label + scanner + signal
 #    DST: Nov 2, 2026 — shift to 20:45 UTC (2:45 PM CST)
 #  - Manual via Actions tab
 on:
-  schedule:
-    - cron: '45 19 * * 1-5'
+  # GitHub native `schedule:` REMOVED 2026-06-15 — it fired ~1hr LATE *and*
+  # duplicated the on-time cron-job.org trigger (which calls workflow_dispatch),
+  # so the PM bot ran TWICE and sent TWO signals/day (e.g. NNE on-time + ADSK from
+  # the late run). cron-job.org's workflow_dispatch is now the single daily trigger.
   workflow_dispatch:
     inputs:
       dry_run:
