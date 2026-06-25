@@ -131,7 +131,7 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     lines.append(f"   T3 (stretch):     ${T3:.2f} (+{tps['tp3']:.0f}%) — optional")
     lines.append(f"🛑 STOP: ${STOP:.2f} ({stop_p:+.0f}%) HARD")
     lines.append("")
-    lines.append("⏱️ Short-term pullback play — ~5-7 day trade (10-day max hold).")
+    lines.append("⏱️ Short-term pullback play — exits on target (win) or stop (loss), no time limit.")
     lines.append("")
     if day_pool and len(day_pool) > 1:
         runner_up = next((x for x in day_pool if x['ticker'] != c['ticker']), None)

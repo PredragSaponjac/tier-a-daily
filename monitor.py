@@ -5,7 +5,7 @@ For each open position:
   2. Update MAE/MFE based on intraday highs/lows
   3. If H reaches T1 -> bot auto-closes at TP1, sends close alert
   4. If L reaches stop -> bot exits, sends stop alert
-  5. If >= time_stop_days since entry -> timeout close at last price
+  NOTE: there is NO time-based timeout. Positions exit ONLY on TP1 (win) or STOP (loss).
 
 Run every 15 min during US market hours (9:30am-4pm ET = 14:30-21:00 UTC).
 """
@@ -25,7 +25,7 @@ def _today_iso() -> str:
 
 
 def check_position(pos: dict, dry_run: bool = False) -> dict | None:
-    """Check one position for TP1/stop/timeout hits. Returns close info if closed."""
+    """Check one position for TP1/stop hits. Returns close info if closed. NO timeout."""
     tk = pos['ticker']
     entry_date = pos['entry_date']
     entry = pos['entry_price']
@@ -34,7 +34,7 @@ def check_position(pos: dict, dry_run: bool = False) -> dict | None:
 
     # Pull data from entry+1 onward
     e = dt.datetime.strptime(entry_date, '%Y-%m-%d').date()
-    end = e + dt.timedelta(days=P.time_stop_days() + 5)
+    end = dt.date.today() + dt.timedelta(days=1)  # full window entry->today (no time cap)
     try:
         # 1-day bars first to find the relevant window; for today's intraday use 5m
         df = yf.Ticker(tk).history(start=e + dt.timedelta(days=1), end=end, auto_adjust=True, interval='1d')
@@ -77,21 +77,9 @@ def check_position(pos: dict, dry_run: bool = False) -> dict | None:
             send_telegram(msg)
             return {'closed': True, 'reason': 'STOP', 'exit_price': exit_price, 'exit_date': date_str, 'record': closed}
 
-    # Neither TP1 nor stop hit yet. Check time-stop.
-    today = dt.date.today()
-    days_since_entry = (today - e).days
-    if days_since_entry >= P.time_stop_days():
-        last_close = float(df['Close'].iloc[-1])
-        last_date = df.index[-1].date().isoformat()
-        print(f'  [{tk}] TIMEOUT at day {days_since_entry} — close at ${last_close:.2f}')
-        if dry_run:
-            return {'closed': True, 'reason': 'TIMEOUT', 'exit_price': last_close, 'exit_date': last_date}
-        closed = PT.close_position(tk, entry_date, last_close, 'TIMEOUT', last_date)
-        msg = format_close(tk, entry, last_close, 'TIMEOUT')
-        send_telegram(msg)
-        return {'closed': True, 'reason': 'TIMEOUT', 'exit_price': last_close, 'exit_date': last_date, 'record': closed}
-
-    # Position still open. MAE/MFE updated above.
+    # NO time-based timeout. A position exits ONLY on TP1 (win) or STOP (loss),
+    # both handled in the day-walk above. If neither fired, it stays open and
+    # keeps tracking MAE/MFE indefinitely until a target or the stop is hit.
     return None
 
 
