@@ -5,10 +5,14 @@ name: Skew PM - auto scan + label + scanner + signal
 #    DST: Nov 2, 2026 — shift to 20:45 UTC (2:45 PM CST)
 #  - Manual via Actions tab
 on:
-  # GitHub native `schedule:` REMOVED 2026-06-15 — it fired ~1hr LATE *and*
-  # duplicated the on-time cron-job.org trigger (which calls workflow_dispatch),
-  # so the PM bot ran TWICE and sent TWO signals/day (e.g. NNE on-time + ADSK from
-  # the late run). cron-job.org's workflow_dispatch is now the single daily trigger.
+  # Native `schedule:` was REMOVED 2026-06-15 because it fired ~1hr late AND duplicated
+  # cron-job.org, running the PM bot TWICE and sending TWO signals/day (NNE on-time +
+  # ADSK from the late run). But that left cron-job.org as the SOLE trigger, and when its
+  # PAT expired ~2026-06-28 the scanner died silently for 17 trading days (6/27-7/17).
+  # RE-ADDED 2026-07-20 *with* the `guard` job below, which skips the run if a PM snapshot
+  # was already committed today — so we get redundancy WITHOUT the double-signal bug.
+  schedule:
+    - cron: '45 19 * * 1-5'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -21,7 +25,30 @@ on:
         default: ''
 
 jobs:
+  # Dupe guard: the PM run SENDS SIGNALS, so it must never run twice in one day.
+  # If cron-job.org already fired and committed today's PM snapshot, skip this run.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+      - id: check
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          if git log --since="$TODAY 00:00" --grep="Skew tracker snapshot $TODAY PM" --oneline | grep -q .; then
+            echo "PM scan already committed for $TODAY — skipping duplicate run."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "No PM scan yet for $TODAY — proceeding."
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
   scan_and_signal:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

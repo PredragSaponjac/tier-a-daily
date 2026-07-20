@@ -5,9 +5,14 @@ name: Skew AM - auto scan + label
 #    DST: Nov 2, 2026 — shift to 15:30 UTC (9:30 AM CST)
 #  - Manual via Actions tab
 on:
-  # GitHub native `schedule:` REMOVED 2026-06-15 — it fired ~1hr LATE *and*
-  # duplicated the on-time cron-job.org trigger, double-running the AM scan (extra
-  # commits + push races). cron-job.org's workflow_dispatch is now the single trigger.
+  # Native `schedule:` was REMOVED 2026-06-15 (it fired ~1hr late and double-ran with
+  # cron-job.org). That left cron-job.org's workflow_dispatch as the SOLE trigger — and
+  # when its PAT expired ~2026-06-28 the scanner went silently dead for 17 trading days
+  # (6/27-7/17, zero scans, zero signals). RE-ADDED 2026-07-20 so scanning never depends
+  # on one external token again. GitHub cron usually fires LATE, so if cron-job.org is
+  # also live it wins the race; worst case a duplicate scan re-writes the same snapshot.
+  schedule:
+    - cron: '30 14 * * 1-5'
   workflow_dispatch:
     inputs:
       dry_run:

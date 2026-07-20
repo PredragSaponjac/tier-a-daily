@@ -1,0 +1,60 @@
+name: Heartbeat - alert if the scanner goes silent
+
+# WHY THIS EXISTS
+# On 2026-06-15 the native cron was removed from skew_am/skew_pm, leaving cron-job.org's
+# workflow_dispatch as the only trigger. Its PAT expired ~2026-06-28 and the scanner went
+# DEAD for 17 trading days (6/27-7/17) — zero scans, zero signals — and nobody noticed for
+# three weeks. The PAT expiring was not the real failure; the SILENCE was. This job makes
+# silence loud: if no skew snapshot has been committed recently, it pings Telegram.
+
+on:
+  schedule:
+    - cron: '0 22 * * 1-5'   # 22:00 UTC weekdays, after both scans should have run
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 200
+
+      - name: Check scanner freshness + alert if stale
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+
+          LAST=$(git log -1 --format=%cI --grep="Skew tracker snapshot" || true)
+          if [ -z "$LAST" ]; then
+            MSG="🚨 TIER A HEARTBEAT: no 'Skew tracker snapshot' commit found at all. Scanner may never have run."
+            STALE=1
+          else
+            LAST_TS=$(date -u -d "$LAST" +%s)
+            NOW_TS=$(date -u +%s)
+            AGE_H=$(( (NOW_TS - LAST_TS) / 3600 ))
+            echo "Last skew snapshot: $LAST (${AGE_H}h ago)"
+            # 72h covers a normal weekend (Fri PM -> Mon PM). Anything beyond = dead.
+            if [ "$AGE_H" -gt 72 ]; then
+              MSG="🚨 TIER A HEARTBEAT: scanner appears DEAD. Last skew snapshot was ${AGE_H}h ago ($LAST). No scans = no signals. Check the skew_am/skew_pm workflow runs and the cron-job.org trigger/PAT."
+              STALE=1
+            else
+              echo "Scanner healthy (${AGE_H}h since last snapshot)."
+              STALE=0
+            fi
+          fi
+
+          if [ "${STALE}" = "1" ]; then
+            echo "$MSG"
+            if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+              curl -sS -X POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d chat_id="${TELEGRAM_CHAT_ID}" \
+                --data-urlencode text="$MSG" >/dev/null && echo "Telegram alert sent."
+            else
+              echo "WARNING: Telegram secrets not set — could not send alert."
+            fi
+            exit 1   # also surface it as a red X in the Actions tab
+          fi
