@@ -96,6 +96,6 @@ jobs:
       - name: Commit archive state
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
-          git add signals/ open_positions.json track_record.csv 2>/dev/null || true
+          git add signals/ open_positions.json closed_trades.json track_record.csv 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"
           git push || (git pull --rebase --autostash && git push) || true
