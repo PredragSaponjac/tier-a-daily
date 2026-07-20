@@ -564,10 +564,16 @@ def save_reading(conn: sqlite3.Connection, ticker: str, date: str, data: Dict):
     put_wall_oi_change = None
     call_wall_oi_change = None
     try:
+        # GAP GUARD (2026-07-20): bound the "prior reading" to the last ~10 calendar
+        # days. Unbounded, after the 6/27-7/17 outage this picked up the 6/26 row and
+        # reported a THREE-WEEK OI delta as a day-over-day change — and
+        # put_wall_oi_change <= 0 is a Tier A filter. No recent prior => leave it None,
+        # which excludes the candidate (the Tier A query requires it NOT NULL).
+        _floor = (dt.datetime.strptime(date, "%Y-%m-%d").date() - dt.timedelta(days=10)).isoformat()
         prior = conn.execute(
             "SELECT put_wall_oi, call_wall_oi FROM skew_daily "
-            "WHERE ticker = ? AND date < ? ORDER BY date DESC LIMIT 1",
-            (ticker, date)
+            "WHERE ticker = ? AND date < ? AND date >= ? ORDER BY date DESC LIMIT 1",
+            (ticker, date, _floor)
         ).fetchone()
         if prior:
             prior_put_oi, prior_call_oi = prior
@@ -1063,12 +1069,26 @@ def generate_pattern_report(conn: sqlite3.Connection) -> Optional[str]:
 
 
 def get_history(conn: sqlite3.Connection, ticker: str, days: int = 10) -> pd.DataFrame:
+    """Last `days` readings for a ticker — bounded by DATE, not just row count.
+
+    GAP GUARD (added 2026-07-20). This used to be a pure `LIMIT ?` on rows, so a
+    collection outage (the scanner was dead 6/27-7/17) silently returned rows weeks
+    apart: [7/20, 6/26, 6/25, ...]. compute_divergence() takes "skew N days ago" as a
+    ROW offset, so skew_change_5d would have compared today's skew against a JUNE
+    reading and reported it as a 5-day collapse — manufacturing false Tier A signals
+    out of three weeks of drift. Now rows far older than the requested window are
+    dropped, so a gap yields too-little history and the signal is simply not produced.
+    """
     df = pd.read_sql_query(
         "SELECT * FROM skew_daily WHERE ticker = ? ORDER BY date DESC LIMIT ?",
         conn, params=(ticker, days)
     )
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"])
+        # `days` is TRADING days; allow ~1.5x calendar slack + holidays, measured from
+        # the newest row so this works for both live scans and historical backfills.
+        max_span = pd.Timedelta(days=int(days * 1.5) + 4)
+        df = df[df["date"] >= (df["date"].max() - max_span)]
         df = df.sort_values("date")
     return df
 
