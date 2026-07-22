@@ -1913,9 +1913,18 @@ def compute_divergence(history: pd.DataFrame) -> Optional[Dict]:
     if len(history) < 2:
         return None
 
-    # Need at least 2 DISTINCT dates — can't compute divergence from a single day
+    # Need enough DISTINCT dates for a genuine multi-day change.
+    #
+    # MIN-WINDOW GUARD (added 2026-07-22). This used to require only 2 distinct dates,
+    # so while rebuilding history after the 6/27-7/17 outage it computed a ONE-day skew
+    # change and stored it in the field `skew_change_5d` — which Tier A then tested as
+    # `skew_change_5d <= -7`, i.e. a 5-day capitulation. On 2026-07-21, with just 2 fresh
+    # days in the DB, that surfaced 7 "Tier A" candidates off 1-day noise. SKEW_LOOKBACK_DAYS
+    # is 5, so a real 5-day change needs 6 distinct dates (5 intervals). Below that we
+    # return None: the metric is NULL, and the Tier A query (which requires
+    # skew_change_5d <= -5 NOT NULL) excludes the candidate. No signal beats a fake one.
     unique_dates = history["date"].nunique()
-    if unique_dates < 2:
+    if unique_dates < SKEW_LOOKBACK_DAYS + 1:
         return None
 
     current = history.iloc[-1]
