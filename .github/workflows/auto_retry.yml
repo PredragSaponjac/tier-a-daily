@@ -1,0 +1,50 @@
+name: Auto-retry failed scans
+
+# WHY THIS EXISTS
+# 2026-07-27 (the first legitimate signal day after the outage): GitHub's hosted runner
+# died mid-PM-scan ("The hosted runner lost communication with the server") 1h20m in.
+# Nothing in our code failed — but the day's PM snapshot + signal run needed a HUMAN to
+# notice the red X and re-dispatch. This workflow does that automatically.
+#
+# LOOP SAFETY: retries only when the FAILED run was event == 'schedule'. The retry itself
+# is a workflow_dispatch, so if the retry also fails it does NOT chain — exactly one
+# automatic retry per scheduled failure. The PM 'guard' job independently prevents any
+# duplicate scan/signal if the first attempt got far enough to commit its snapshot.
+
+on:
+  workflow_run:
+    workflows:
+      - "Skew AM - auto scan + label"
+      - "Skew PM - auto scan + label + scanner + signal"
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-dispatch the failed scan once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          WF_FILE=$(basename "${{ github.event.workflow_run.path }}")
+          echo "Scheduled run of '${{ github.event.workflow_run.name }}' FAILED (run ${{ github.event.workflow_run.id }})."
+          echo "Re-dispatching $WF_FILE once..."
+          gh workflow run "$WF_FILE" --repo "${{ github.repository }}"
+          echo "Re-dispatched."
+
+      - name: Telegram heads-up (best effort)
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              --data-urlencode text="⚠️ ${{ github.event.workflow_run.name }}: scheduled run failed (likely GitHub runner death) — auto-retry dispatched. If this repeats today, check Actions." >/dev/null || true
+          fi
