@@ -1,0 +1,43 @@
+{
+  "scan_date": "2026-07-28",
+  "run_at": "2026-07-28T21:00:07.668990Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "candidates": [
+    {
+      "ticker": "TE",
+      "spot_close": 4.15,
+      "spot_return_pct": -31.18,
+      "skew_change_5d": -17.19,
+      "near_skew": -19.53,
+      "near_dte": 3,
+      "put_wall_strike": 7.0,
+      "put_wall_oi_change": -18,
+      "sector": "Industrials",
+      "industry": "Electrical Equipment & Parts",
+      "dte_earnings": null,
+      "filter_score": 2,
+      "filter_raw": {
+        "z_ncp": 1.2617113987548219,
+        "coi_pct": -19.166396514908357,
+        "poi_pct": 4.3717431963433695,
+        "dp_blocks_10d": 45,
+        "dp_cumul_10d_M": 166.44980854259995
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": false,
+        "call_oi_10d_pct": true,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": true
+      },
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-08-14",
+        "liquidity_oi": 63298
+      }
+    }
+  ]
+}
