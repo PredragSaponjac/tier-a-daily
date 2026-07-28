@@ -95,6 +95,13 @@ def main():
         # options chain — the legs are only as trustworthy as the data they're computed on.
         c['noise'] = DQ.assess_noise(c['ticker'], c['scan_date'],
                                      std_threshold=sel['skew_noise_std_max'])
+        # EDGE-VALIDATION logging (2026-07-27 edge hunt) — research only, has NO
+        # effect on selection. Scored after 10-20 fresh signals via edge_validation.py.
+        try:
+            import edge_metrics as EM
+            c['edge'] = EM.edge_metrics(c)
+        except Exception as _e:
+            c['edge'] = None
 
     survivors = [c for c in enriched if c['vetoes']['pass']]
     vetoed = [c for c in enriched if not c['vetoes']['pass']]

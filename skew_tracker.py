@@ -2280,8 +2280,23 @@ def run_scan(tickers: List[str], lookback: int = SKEW_LOOKBACK_DAYS, use_ai: boo
         # Save candidate_log row for every ticker with a snapshot
         snap = snapshots.get(ticker)
         if snap:
+            # SECTOR RANKS (FIX 2026-07-28): the Phase 2.5 refactor (89d395d, 5/28)
+            # rebuilt this bulk path WITHOUT sector_ranks -> sector_iv_rank silently
+            # became 0 for every candidate_log row from 5/28 onward. That column is
+            # the strongest verified winner/loser separator from the 2026-07-27 edge
+            # hunt (big20 61% vs 14%), so restore the computation here. Safe: today's
+            # skew_daily rows for all peers were written in Step 1 above.
+            _ranks = None
+            try:
+                _srow = conn.execute(
+                    "SELECT sector FROM skew_daily WHERE date=? AND ticker=?",
+                    (today_str, ticker)).fetchone()
+                if _srow and _srow[0]:
+                    _ranks = compute_sector_ranks(conn, ticker, _srow[0], today_str)
+            except Exception:
+                _ranks = None
             save_candidate(conn, ticker, today_str, snap, div=div,
-                           walls=walls_for_ticker)
+                           walls=walls_for_ticker, sector_ranks=_ranks)
             candidate_count += 1
 
     if candidate_count > 0:

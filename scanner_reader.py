@@ -4,9 +4,13 @@ import sqlite3
 from pathlib import Path
 
 # Path to the skew-tracker DB. Override via SKEW_DB_PATH env var (used in CI).
-# Default for local dev: sibling C:\Users\18329\Downloads\skew-tracker repo.
+# Local default (fixed 2026-07-28): prefer THIS repo's committed skew_history.db —
+# the old sibling-repo copy at Downloads\skew-tracker went stale (last scan 6/5) and
+# silently fed local dry-runs/scorecards weeks-old data. Sibling kept only as fallback.
+_LOCAL_DB = Path(__file__).resolve().parent / 'skew_history.db'
 SKEW_DB = Path(os.environ.get('SKEW_DB_PATH',
-    r'C:\Users\18329\Downloads\skew-tracker\skew_history.db'))
+    str(_LOCAL_DB) if _LOCAL_DB.exists()
+    else r'C:\Users\18329\Downloads\skew-tracker\skew_history.db'))
 
 EXCLUDED_ETFS = {'UVIX','UVXY','VXX','VIXY','SVIX','SVXY','SOXL','SOXS','TQQQ','SQQQ',
     'SPXL','SPXU','UPRO','SPXS','TNA','TZA','LABU','LABD','FAS','FAZ','JNUG','JDST','NUGT','DUST',
@@ -70,6 +74,9 @@ def read_tier_a(scan_date: str = None) -> list[dict]:
             'sector': r['sector'],
             'industry': r['industry'],
             'dte_earnings': r['dte_earnings'],
+            # EDGE-VALIDATION logging only (2026-07-27 edge hunt) — NOT used in selection
+            'sector_iv_rank': r['sector_iv_rank'],
+            'iv_hv_ratio': r['iv_hv_ratio'],
         })
     return out, scan_date
 
