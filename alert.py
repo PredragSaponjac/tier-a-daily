@@ -206,6 +206,11 @@ def format_watch_list(watch: list) -> str:
         skew_s = f"{skew:+.0f}" if skew is not None else '?'
         vc_s = f"{vc:.1f}x" if vc is not None else '?'
         lines.append(f"  • {c['ticker']:<5s} UW {score}/4 {conv} | skew {skew_s}, cushion {vc_s} | {why}")
+        # Edge-validation readout (research only — informational, still NOT auto-traded)
+        e = c.get('edge')
+        if e:
+            lines.append(f"      🔬 edge: rank {e['sector_iv_rank']} | slope {e['skew_slope']} | iv/hv {e['iv_hv_ratio']}"
+                         f" → combo {'✅' if e['combo_pass'] else '—'}")
     return '\n'.join(lines)
 
 

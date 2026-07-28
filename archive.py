@@ -58,6 +58,8 @@ def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str |
                 'earnings_next': v.get('details', {}).get('earnings', {}).get('next_earnings'),
                 'liquidity_oi': v.get('details', {}).get('liquidity', {}).get('total_oi'),
             },
+            # Edge-validation metrics (added 2026-07-28) — research logging only
+            'edge': c.get('edge'),
         })
 
     file_path = ARCHIVE_DIR / f'{scan_date}.json'
