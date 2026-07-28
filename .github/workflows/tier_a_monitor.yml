@@ -50,6 +50,9 @@ jobs:
         run: |
           git config user.name "tier-a-daily-bot"
           git config user.email "bot@tieradaily.local"
-          git add open_positions.json closed_trades.json track_record.csv 2>/dev/null || true
+          # One add per path (2026-07-28): multi-path git add is all-or-nothing and
+          # gitignored/absent track_record.csv could abort the whole stage (see skew_pm).
+          git add open_positions.json 2>/dev/null || true
+          git add closed_trades.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Monitor run $(date -u +%Y-%m-%dT%H:%MZ)"
           git push || (git pull --rebase --autostash && git push) || true

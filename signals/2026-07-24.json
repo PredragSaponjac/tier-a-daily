@@ -1,0 +1,9 @@
+{
+  "scan_date": "2026-07-24",
+  "run_at": "2026-07-28T03:35:08.923756Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "notes": "No Tier A candidates. (Backfilled 2026-07-28: archive commits were broken by an all-or-nothing git add since launch \u2014 content deterministic from candidate_log.)",
+  "candidates": []
+}

@@ -123,6 +123,14 @@ jobs:
       - name: Commit archive state
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
-          git add signals/ open_positions.json closed_trades.json track_record.csv 2>/dev/null || true
+          # ONE git add PER PATH (fixed 2026-07-28): a single multi-path add is all-or-
+          # nothing — track_record.csv is gitignored (and usually absent in this runner),
+          # which made `git add signals/ ... track_record.csv` FATAL and stage NOTHING,
+          # so signals/ archives were written but never committed (zero ever, since
+          # launch). The 2>/dev/null || true swallowed the fatal for two months.
+          # track_record.csv dropped from the list: it is gitignored by design.
+          git add signals/ 2>/dev/null || true
+          git add open_positions.json 2>/dev/null || true
+          git add closed_trades.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"
           git push || (git pull --rebase --autostash && git push) || true
