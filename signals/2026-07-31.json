@@ -1,0 +1,9 @@
+{
+  "scan_date": "2026-07-31",
+  "run_at": "2026-07-31T21:05:39.805539Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "notes": "No Tier A candidates today.",
+  "candidates": []
+}
