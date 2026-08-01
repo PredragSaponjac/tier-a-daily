@@ -26,6 +26,17 @@ SECTOR_IV_RANK_MIN = 60.0
 SKEW_SLOPE_MAX = -1.6
 IV_HV_RATIO_MIN = 1.1
 
+# --- stop-width diagnostic (2026-07-31 study) -------------------------------
+# The live stop is a FIXED -7%. Measured against ATR(14) it sits a median of only
+# 0.77 ATR away on Tier A candidates (89.6% inside 1.5 ATR, p10 = 0.48) — i.e.
+# INSIDE normal daily noise, which is why ~40% of trades stop out. Widening to
+# ~2x ATR cut stop-outs 41%->25% and tripled RAW expectancy (+3.0%->+8.6%), but
+# RISK-ADJUSTED (R) it was a wash (+0.434 -> +0.470, CIs overlapping) and it was
+# WORSE on the wide sample. So: NOT changing the stop — logging the diagnostic
+# and deciding prospectively, same protocol as the edge metrics.
+LIVE_STOP_PCT = 7.0
+STOP_ATR_TIGHT = 1.0   # below this the stop is inside a single daily range
+
 
 def skew_slope(ticker: str, scan_date: str, db_path=None,
                n: int = 6, max_gap_days: int = 14):
@@ -48,6 +59,42 @@ def skew_slope(ticker: str, scan_date: str, db_path=None,
     return float(np.polyfit(range(len(y)), y, 1)[0])
 
 
+def atr_profile(ticker: str, scan_date: str, stop_pct: float = LIVE_STOP_PCT, n: int = 14):
+    """ATR(14)% as of scan_date + how many ATRs the FIXED live stop sits away.
+
+    Backward-looking only (bars up to and including scan_date). Research logging:
+    stop_atr < 1.0 means the -7% stop is inside one average daily range, so a normal
+    day's noise can take the trade out before the thesis resolves.
+    """
+    try:
+        import yfinance as yf
+        end = dt.date.fromisoformat(str(scan_date)[:10]) + dt.timedelta(days=1)
+        start = end - dt.timedelta(days=60)
+        df = yf.Ticker(ticker).history(start=start.isoformat(), end=end.isoformat(),
+                                       interval='1d', auto_adjust=True)
+        if len(df) < n + 1:
+            return None
+        h = df['High'].to_numpy(dtype=float)
+        low = df['Low'].to_numpy(dtype=float)
+        cl = df['Close'].to_numpy(dtype=float)
+        pc = np.roll(cl, 1)
+        pc[0] = cl[0]
+        tr = np.maximum(h - low, np.maximum(np.abs(h - pc), np.abs(low - pc)))
+        atr = float(np.mean(tr[-n:]))
+        last = float(cl[-1])
+        if not np.isfinite(atr) or atr <= 0 or last <= 0:
+            return None
+        atr_pct = atr / last * 100.0
+        return {
+            'atr_pct': round(atr_pct, 2),
+            'stop_atr': round(stop_pct / atr_pct, 2),
+            'tight_stop': bool(stop_pct / atr_pct < STOP_ATR_TIGHT),
+            'atr2x_stop_pct': round(2.0 * atr_pct, 1),   # what a 2x-ATR stop would be
+        }
+    except Exception:
+        return None
+
+
 def edge_metrics(c: dict, db_path=None) -> dict:
     """Compute the three validation metrics for a candidate dict (read-only)."""
     sr = c.get('sector_iv_rank')
@@ -55,6 +102,7 @@ def edge_metrics(c: dict, db_path=None) -> dict:
     ihr = c.get('iv_hv_ratio')
     ihr = None if ihr in (None, 0, 0.0) else float(ihr)
     ss = skew_slope(c.get('ticker'), c.get('scan_date'), db_path)
+    atr = atr_profile(c.get('ticker'), c.get('scan_date'))
     return {
         'sector_iv_rank': sr,
         'skew_slope': None if ss is None else round(ss, 2),
@@ -62,4 +110,9 @@ def edge_metrics(c: dict, db_path=None) -> dict:
         'combo_pass': bool(sr is not None and ss is not None
                            and sr >= SECTOR_IV_RANK_MIN and ss <= SKEW_SLOPE_MAX),
         'ivr_pass': bool(ihr is not None and ihr >= IV_HV_RATIO_MIN),
+        # stop-width diagnostic — logged only, the live stop stays -7%
+        'atr_pct': None if not atr else atr['atr_pct'],
+        'stop_atr': None if not atr else atr['stop_atr'],
+        'tight_stop': None if not atr else atr['tight_stop'],
+        'atr2x_stop_pct': None if not atr else atr['atr2x_stop_pct'],
     }

@@ -82,8 +82,24 @@ def main():
         bucket_stats(dd, combo, f'H2: combo (rank >= {SECTOR_IV_RANK_MIN:.0f} AND slope <= {SKEW_SLOPE_MAX})')
     bucket_stats(d, d['iv_hv_ratio'].fillna(0) >= IV_HV_RATIO_MIN, f'H3: iv_hv_ratio >= {IV_HV_RATIO_MIN}')
 
+    # ---- H4: stop-width diagnostic (2026-07-31 study). LOG ONLY — live stop stays -7%.
+    from edge_metrics import atr_profile, LIVE_STOP_PCT, STOP_ATR_TIGHT
+    prof = [atr_profile(t, s) for t, s in zip(d['ticker'], d['scan_date'])]
+    sa = pd.Series([p['stop_atr'] for p in prof if p], dtype=float)
+    print(f'\n  H4 stop width: the fixed -{LIVE_STOP_PCT:.0f}% stop in ATR terms')
+    if len(sa):
+        tight = (sa < STOP_ATR_TIGHT).mean()
+        print(f'    n={len(sa)}  median {sa.median():.2f}x ATR  (p10 {sa.quantile(.10):.2f} / '
+              f'p90 {sa.quantile(.90):.2f})')
+        print(f'    inside 1 daily range (<{STOP_ATR_TIGHT}x ATR): {tight:.0%}   '
+              f'[backtest baseline: Tier A median 0.77x, 90% <1.5x]')
+        print('    -> if fresh candidates keep landing <1x ATR, the -7% stop is being hit by')
+        print('       noise, not thesis breaks. Decide with the same 10/15-sample protocol.')
+    else:
+        print('    no ATR data yet')
+
     print('\nreminder: wire-in requires (a) n>=10 AND Fisher p<0.05, or (b) n>=15 review.')
-    print('Selection logic stays untouched until the user signs off on a scorecard.')
+    print('Selection logic AND the -7% stop stay untouched until you sign off on a scorecard.')
 
 
 if __name__ == '__main__':

@@ -139,6 +139,10 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
         lines.append("🔬 Edge-validation (research only — does NOT affect selection):")
         lines.append(f"   sector_iv_rank {e['sector_iv_rank']} | skew_slope {e['skew_slope']} | iv/hv {e['iv_hv_ratio']}")
         lines.append(f"   combo(rank≥60 & slope≤−1.6): {'✅ pass' if e['combo_pass'] else '— no'} | iv/hv≥1.1: {'✅ pass' if e['ivr_pass'] else '— no'}")
+        if e.get('stop_atr') is not None:
+            warn = '  ⚠️ stop inside 1 daily range' if e.get('tight_stop') else ''
+            lines.append(f"   stop width: −7% = {e['stop_atr']}x ATR (ATR {e['atr_pct']}%)"
+                         f" | a 2×ATR stop would be −{e['atr2x_stop_pct']}%{warn}")
     lines.append("")
     if day_pool and len(day_pool) > 1:
         runner_up = next((x for x in day_pool if x['ticker'] != c['ticker']), None)
@@ -209,8 +213,9 @@ def format_watch_list(watch: list) -> str:
         # Edge-validation readout (research only — informational, still NOT auto-traded)
         e = c.get('edge')
         if e:
+            atr_s = f" | stop {e['stop_atr']}xATR" if e.get('stop_atr') is not None else ''
             lines.append(f"      🔬 edge: rank {e['sector_iv_rank']} | slope {e['skew_slope']} | iv/hv {e['iv_hv_ratio']}"
-                         f" → combo {'✅' if e['combo_pass'] else '—'}")
+                         f" → combo {'✅' if e['combo_pass'] else '—'}{atr_s}")
     return '\n'.join(lines)
 
 
