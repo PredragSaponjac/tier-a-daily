@@ -1,3 +1,25 @@
 {
-  "positions": []
+  "positions": [
+    {
+      "ticker": "RDDT",
+      "entry_date": "2026-08-03",
+      "entry_price": 154.71,
+      "T1": 170.181,
+      "T2": 171.7281,
+      "T3": 185.65200000000002,
+      "STOP": 143.8803,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 1,
+      "z_ncp": 2.809506861157385,
+      "coi_pct": 20.529366776172854,
+      "poi_pct": 24.104389466989474,
+      "dp_blocks_10d": 287,
+      "dp_cumul_10d_M": 967.284145713102,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-08-03T21:02:54.795922Z"
+    }
+  ]
 }

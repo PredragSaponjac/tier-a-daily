@@ -1,0 +1,54 @@
+{
+  "scan_date": "2026-08-03",
+  "run_at": "2026-08-03T21:02:54.796146Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "RDDT",
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "RDDT",
+      "spot_close": 154.71,
+      "spot_return_pct": -16.75,
+      "skew_change_5d": -7.08,
+      "near_skew": -8.06,
+      "near_dte": 4,
+      "put_wall_strike": 115.0,
+      "put_wall_oi_change": -5577,
+      "sector": "Communication Services",
+      "industry": "Internet Content & Information",
+      "dte_earnings": null,
+      "filter_score": 1,
+      "filter_raw": {
+        "z_ncp": 2.809506861157385,
+        "coi_pct": 20.529366776172854,
+        "poi_pct": 24.104389466989474,
+        "dp_blocks_10d": 287,
+        "dp_cumul_10d_M": 967.284145713102
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": false,
+        "call_oi_10d_pct": false,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": true
+      },
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-29",
+        "liquidity_oi": 121169
+      },
+      "edge": {
+        "sector_iv_rank": 54.1,
+        "skew_slope": -1.86,
+        "iv_hv_ratio": 0.55,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 9.45,
+        "stop_atr": 0.74,
+        "tight_stop": true,
+        "atr2x_stop_pct": 18.9
+      }
+    }
+  ]
+}
