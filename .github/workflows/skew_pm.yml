@@ -108,6 +108,14 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           GOOGLE_SHEETS_CREDS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDS_BASE64 }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          # X AUTO-POSTING RE-ENABLED 2026-08-03 (user decision). It was gated off
+          # 2026-06-15 after the RUM incident (a micro-cap whose skew flipped bearish
+          # intraday auto-published). Since then three hard gates were added that would
+          # each have blocked RUM: the >=1-strong-leg gate (legs.py), the chain-noise
+          # gate (data_quality.py), and the below-put-wall disqualifier. Drafts are still
+          # written to x_drafts/ (now committed) so every post has an auditable record.
+          # To gate it off again, set this to '0'.
+          ENABLE_X_AUTOPOST: '1'
         run: |
           ARGS=""
           if [ -n "${{ github.event.inputs.scan_date_override }}" ]; then
