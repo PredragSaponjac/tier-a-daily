@@ -130,6 +130,7 @@ jobs:
           # launch). The 2>/dev/null || true swallowed the fatal for two months.
           # track_record.csv dropped from the list: it is gitignored by design.
           git add signals/ 2>/dev/null || true
+          git add x_drafts/ 2>/dev/null || true
           git add open_positions.json 2>/dev/null || true
           git add closed_trades.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"

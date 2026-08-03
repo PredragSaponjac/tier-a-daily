@@ -1,0 +1,44 @@
+🎯 Tier A Daily Signal — $RDDT
+✅ Setup: SOLID — big cushion
+
+Skew setup — THE SIGNAL (Tier A gates passed):
+  • Spot $154.71 (-16.8% / 5d)
+  • skew_change_5d -7.1 · near_skew -8.1
+  • Put wall $115.0 → spot +34.5% above (cushion)
+  • Sector: Communication Services · near-dte 4
+
+🔎 UW flow — bonus confirmation only, NOT the signal (1/4):
+  • NCP entry z-score: +2.81
+  • Call OI 10d: +20.5%
+  • Put OI 10d: +24.1%
+  • Dark pool large blocks (10d): 287
+
+Entry: $154.71
+T1 (default exit): $170.18 (+10%)
+Stop: $143.88 (-7%)
+
+⏱️ Short-term pullback — exits on target (win) or stop (loss), no time limit.
+Bot auto-closes at T1 or stop.
+
+📊 Live record (since 4/20): AR ✅ +7% | CRSP ✅ +11% | SMMT ✅ +10% | SYM ❌ -7% | VKTX ✅ +11% | OSCR ✅ +11% | RGTI ❌ -7% | NNE ✅ +10% | MDB ❌ -7% | ADSK ✅ +10%
+7 of 10 winners (70% win) · avg winner +10%
+Backtest n=63: 67% TP1 hit · 71% profitable · +5.2% avg/trade
+
+📊 Track record — heat & peak, every call (15-min intraday):
+AR    -1.8%  →  +8.9%  (d8)
+CRSP  -2.4%  →  +11.0%  (d11)
+SMMT  -5.9%  →  +14.2%  (d6)
+SYM   -14.5%  →  stopped ❌
+VKTX  -0.9%  →  +16.6%  (d9)
+OSCR  -3.6%  →  +13.0%  (d3)
+RGTI  -10.5%  →  stopped ❌
+NNE   -4.7%  →  +14.4%  (d4)
+MDB   -8.2%  →  stopped ❌
+ADSK  -6.6%  →  +10.0%  (d22)
+
+Winners turned green (+5%) within 1–3 days, peaking +9–17% by ~1–2 weeks.
+📉 Avg heat before it works: -3.7% (median -3.6%, deepest -6.6%) — expect roughly this much red first. A normal pullback ≠ a broken trade.
+
+📊 Live track record: https://docs.google.com/spreadsheets/d/1R-PafqOjeNbReaGuM5xv5YS3xf1EvwtichPQLUKwedA
+
+⚠️ Quant research only. NOT financial advice.
