@@ -66,17 +66,29 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     # skew capitulation leg and/or a big vol-adjusted cushion leg. UW flow is a
     # SEPARATE bonus-confirmation layer shown lower down; it is NOT the signal and a
     # 0/4 does NOT make the trade weak.
-    legs_on = []
-    if L.get('strong_skew'):
-        legs_on.append('deep skew capitulation')
-    if L.get('strong_cushion'):
-        legs_on.append('big cushion')
-    if len(legs_on) == 2:
-        setup_str = f"💪 SETUP STRENGTH: STRONG — {' + '.join(legs_on)}"
-    elif len(legs_on) == 1:
-        setup_str = f"✅ SETUP STRENGTH: SOLID — {legs_on[0]}"
-    else:
-        setup_str = "✅ SETUP: Tier A (skew gates passed)"
+    # NO ADJECTIVES (fixed 2026-08-03). "SOLID"/"STRONG" told the reader nothing —
+    # not which gate carried the trade, not how close anything was to its bar.
+    # Print the actual measurements against the actual thresholds instead.
+    _sel = P.selection_params()
+    _nz = c.get('noise', {}) or {}
+    _sk, _vc, _cp = c.get('skew'), L.get('vol_cushion'), L.get('cushion_pct')
+    _std = _nz.get('skew_std')
+    _yn = lambda ok: '✅' if ok else '❌'
+    _f = lambda v, fmt: (fmt.format(v) if isinstance(v, (int, float)) else 'n/a')
+    setup_lines = [
+        "QUALIFYING LEGS — at least ONE must pass (this is what makes it tradeable):",
+        f"  {_yn(L.get('strong_skew'))} structural skew {_f(_sk, '{:+.1f}')}"
+        f"   (bar: ≤ {_sel['strong_skew_max']:.0f})",
+        f"  {_yn(L.get('strong_cushion'))} vol-adj cushion {_f(_vc, '{:.1f}')}x"
+        f"   (bar: ≥ {_sel['strong_vol_cushion_min']:.1f}x)",
+        "HARD DISQUALIFIERS — both must be clear:",
+        f"  {_yn(_cp is not None and _cp >= 0)} spot above put wall"
+        f"   ({_f(_cp, '{:+.1f}')}% vs wall)",
+        f"  {_yn(not _nz.get('noisy'))} chain noise std {_f(_std, '{:.1f}')}"
+        f"   (bar: ≤ {_sel['skew_noise_std_max']:.0f})",
+        f"→ TRADEABLE: {'YES' if L.get('tradeable') else 'NO'}",
+    ]
+    setup_str = '\n'.join(setup_lines)
 
     lines = []
     lines.append(f"🎯 NEW Tier A Signal — ${c['ticker']}")

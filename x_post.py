@@ -64,18 +64,24 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     T1 = entry * (1 + tps['tp1']/100)
     STOP = entry * (1 + P.stop_pct()/100)
 
+    # NO ADJECTIVES (fixed 2026-08-03) — state the measurements, not "SOLID"/"STRONG".
     L = c.get('legs', {})
-    _legs = []
-    if L.get('strong_skew'):
-        _legs.append('deep skew capitulation')
-    if L.get('strong_cushion'):
-        _legs.append('big cushion')
-    if len(_legs) == 2:
-        _setup = f"💪 Setup: STRONG — {' + '.join(_legs)}"
-    elif len(_legs) == 1:
-        _setup = f"✅ Setup: SOLID — {_legs[0]}"
-    else:
-        _setup = "✅ Setup: Tier A (skew gates passed)"
+    _sel = P.selection_params()
+    _nz = c.get('noise', {}) or {}
+    _sk, _vc, _cp = c.get('skew'), L.get('vol_cushion'), L.get('cushion_pct')
+    _yn = lambda ok: '✅' if ok else '❌'
+    _f = lambda v, fmt: (fmt.format(v) if isinstance(v, (int, float)) else 'n/a')
+    _setup = '\n'.join([
+        "Gates (needs ≥1 qualifying leg, both disqualifiers clear):",
+        f"  {_yn(L.get('strong_skew'))} structural skew {_f(_sk, '{:+.1f}')} "
+        f"(bar ≤{_sel['strong_skew_max']:.0f})",
+        f"  {_yn(L.get('strong_cushion'))} vol-adj cushion {_f(_vc, '{:.1f}')}x "
+        f"(bar ≥{_sel['strong_vol_cushion_min']:.1f}x)",
+        f"  {_yn(_cp is not None and _cp >= 0)} above put wall "
+        f"({_f(_cp, '{:+.1f}')}%)",
+        f"  {_yn(not _nz.get('noisy'))} chain noise {_f(_nz.get('skew_std'), '{:.1f}')} "
+        f"(bar ≤{_sel['skew_noise_std_max']:.0f})",
+    ])
 
     parts = []
     parts.append(f"🎯 Tier A Daily Signal — ${c['ticker']}")
