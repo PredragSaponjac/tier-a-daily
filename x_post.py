@@ -131,14 +131,59 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def format_close_for_x(ticker: str, entry: float, exit_price: float, reason: str) -> str:
+def format_close_for_x(ticker: str, entry: float, exit_price: float, reason: str,
+                       entry_date: str = None, exit_date: str = None,
+                       mae_pct: float = None, mfe_pct: float = None) -> str:
+    """Full-detail close post — WINS AND LOSSES REPORTED IDENTICALLY.
+
+    Transparency rule: a public entry must always get a public outcome. A loss is
+    posted with the same prominence and detail as a win; nothing is quietly dropped.
+    """
     ret = (exit_price / entry - 1) * 100
-    emoji = "📍" if reason == "TP1" else ("🛑" if reason == "STOP" else "⏱️")
-    return (
-        f"{emoji} ${ticker} — {reason} HIT\n"
-        f"Entry ${entry:.2f} → Exit ${exit_price:.2f} ({ret:+.2f}%)\n\n"
-        f"Tier A Daily auto-close. Track record updated."
-    )
+    win = ret > 0
+    if reason == 'TP1':
+        head = f"📍 ${ticker} — TARGET HIT ✅"
+    elif reason == 'STOP':
+        head = f"🛑 ${ticker} — STOPPED OUT ❌"
+    else:
+        head = f"⏱️ ${ticker} — CLOSED ({reason})"
+
+    parts = [head, ""]
+    dates = ''
+    if entry_date:
+        dates = f" ({entry_date}{' → ' + exit_date if exit_date else ''})"
+    parts.append(f"Entry ${entry:.2f} → Exit ${exit_price:.2f}{dates}")
+    parts.append(f"Result: {ret:+.2f}%")
+    parts.append("")
+
+    if mae_pct is not None or mfe_pct is not None:
+        if mae_pct is not None:
+            parts.append(f"Worst drawdown held through: {mae_pct:+.1f}%")
+        if mfe_pct is not None:
+            parts.append(f"Best unrealised reached: {mfe_pct:+.1f}%")
+        parts.append("")
+
+    if reason == 'STOP':
+        parts.append("Stop is hard at -7%. Taken without hesitation — "
+                     "the losses we publish are the reason the wins mean anything.")
+        parts.append("")
+
+    # Updated record + heat/peak — recomputed AFTER this trade was logged, so it includes it
+    try:
+        import excursions
+        rline = excursions.format_results_line()
+        if rline:
+            parts.append(rline); parts.append("")
+        blk = excursions.format_excursion_block()
+        if blk:
+            parts.append(blk); parts.append("")
+    except Exception as e:
+        print(f'[x] close track-record block skipped: {e}')
+
+    parts.append("📊 Live track record: https://docs.google.com/spreadsheets/d/1R-PafqOjeNbReaGuM5xv5YS3xf1EvwtichPQLUKwedA")
+    parts.append("")
+    parts.append("⚠️ Quant research only. NOT financial advice.")
+    return "\n".join(parts)
 
 
 if __name__ == '__main__':

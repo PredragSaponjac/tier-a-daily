@@ -17,7 +17,35 @@ from dotenv import load_dotenv
 
 import parameters as P
 import position_tracker as PT
+import x_post
 from alert import format_close, send_telegram
+
+
+def _publish_close(pos: dict, tk: str, entry: float, exit_price: float,
+                   reason: str, exit_date: str) -> None:
+    """Telegram + X on every close. WINS AND LOSSES BOTH.
+
+    Closes are published whenever X credentials exist — deliberately NOT behind
+    ENABLE_X_AUTOPOST. That switch guards against publishing a bad PICK; a close is
+    not a pick, it's the outcome of something already public. Gating outcomes would
+    leave public entries with no published result — the exact asymmetry we forbid.
+    """
+    send_telegram(format_close(tk, entry, exit_price, reason))
+    try:
+        msg = x_post.format_close_for_x(
+            tk, entry, exit_price, reason,
+            entry_date=pos.get('entry_date'), exit_date=exit_date,
+            mae_pct=pos.get('MAE_pct'), mfe_pct=pos.get('MFE_pct'))
+        if x_post.post_to_x(msg):
+            print(f'  [{tk}] close posted to X')
+        else:
+            os.makedirs('x_drafts', exist_ok=True)
+            path = f'x_drafts/{exit_date}_{tk}_CLOSE.txt'
+            with open(path, 'w', encoding='utf-8') as fh:
+                fh.write(msg)
+            print(f'  [{tk}] X close post FAILED — draft saved to {path}')
+    except Exception as e:
+        print(f'  [{tk}] X close post error: {e}')
 
 
 def _today_iso() -> str:
@@ -62,8 +90,7 @@ def check_position(pos: dict, dry_run: bool = False) -> dict | None:
             if dry_run:
                 return {'closed': True, 'reason': 'TP1', 'exit_price': exit_price, 'exit_date': date_str}
             closed = PT.close_position(tk, entry_date, exit_price, 'TP1', date_str)
-            msg = format_close(tk, entry, exit_price, 'TP1')
-            send_telegram(msg)
+            _publish_close(pos, tk, entry, exit_price, 'TP1', date_str)
             return {'closed': True, 'reason': 'TP1', 'exit_price': exit_price, 'exit_date': date_str, 'record': closed}
 
         # STOP check (only if TP1 not hit first this day)
@@ -73,8 +100,7 @@ def check_position(pos: dict, dry_run: bool = False) -> dict | None:
             if dry_run:
                 return {'closed': True, 'reason': 'STOP', 'exit_price': exit_price, 'exit_date': date_str}
             closed = PT.close_position(tk, entry_date, exit_price, 'STOP', date_str)
-            msg = format_close(tk, entry, exit_price, 'STOP')
-            send_telegram(msg)
+            _publish_close(pos, tk, entry, exit_price, 'STOP', date_str)
             return {'closed': True, 'reason': 'STOP', 'exit_price': exit_price, 'exit_date': date_str, 'record': closed}
 
     # NO time-based timeout. A position exits ONLY on TP1 (win) or STOP (loss),
