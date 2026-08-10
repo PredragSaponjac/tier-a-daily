@@ -1,0 +1,15 @@
+⚠️ CORRECTION — withdrawing today's $HUT call.
+
+On review it should never have qualified.
+
+Its only qualifying leg was a "48x cushion" measured against a put wall at $20 — with the stock at $85.66. That strike is leftover open interest from when HUT traded far lower. It is not a support level. Spot sat 328% above it; the widest cushion in our entire validated history is ~80%.
+
+The gate had no upper bound on how far the wall could be. Fixed: the cushion leg is now void when spot is >100% above the wall. Threshold derived from the data, not guessed — re-ran all 44 historical qualifiers, zero were affected and HUT is correctly blocked.
+
+We also tested adding a minimum open-interest filter and rejected it: HUT's wall OI was actually ABOVE our historical median, so that filter would have cut 27 of 44 good setups while missing the real problem. Thin walls are normal here. Absurdly distant walls are not.
+
+Withdrawn at entry price. No position, no P&L. Record unchanged: 7W / 3L.
+
+The bug is ours and the fix is shipped. We publish the mistakes the same way we publish the trades.
+
+⚠️ Quant research only. NOT financial advice.
