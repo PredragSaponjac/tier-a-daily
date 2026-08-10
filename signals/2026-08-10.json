@@ -1,0 +1,188 @@
+{
+  "scan_date": "2026-08-10",
+  "run_at": "2026-08-10T21:06:33.162585Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "HUT",
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "BTDR",
+      "spot_close": 8.69,
+      "spot_return_pct": -23.44,
+      "skew_change_5d": -27.35,
+      "near_skew": -21.09,
+      "near_dte": 4,
+      "put_wall_strike": 9.5,
+      "put_wall_oi_change": -3405,
+      "sector": "Technology",
+      "industry": "Software - Application",
+      "dte_earnings": null,
+      "filter_score": 3,
+      "filter_raw": {
+        "z_ncp": -0.7126132658053561,
+        "coi_pct": -33.91193954562678,
+        "poi_pct": 13.032869146556635,
+        "dp_blocks_10d": 48,
+        "dp_cumul_10d_M": 137.17904088920002
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": true,
+        "call_oi_10d_pct": true,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": true
+      },
+      "veto_pass": false,
+      "veto_reasons": [
+        "EARNINGS RISK: reports in 0d (2026-08-10)"
+      ],
+      "veto_details": {
+        "earnings_next": "2026-08-10",
+        "liquidity_oi": 126635
+      },
+      "edge": {
+        "sector_iv_rank": 89.6,
+        "skew_slope": -1.73,
+        "iv_hv_ratio": 0.72,
+        "combo_pass": true,
+        "ivr_pass": false,
+        "atr_pct": 15.71,
+        "stop_atr": 0.45,
+        "tight_stop": true,
+        "atr2x_stop_pct": 31.4
+      }
+    },
+    {
+      "ticker": "CLSK",
+      "spot_close": 11.59,
+      "spot_return_pct": -17.33,
+      "skew_change_5d": -15.72,
+      "near_skew": -8.98,
+      "near_dte": 4,
+      "put_wall_strike": 10.0,
+      "put_wall_oi_change": -3984,
+      "sector": "Financial Services",
+      "industry": "Capital Markets",
+      "dte_earnings": null,
+      "filter_score": 2,
+      "filter_raw": {
+        "z_ncp": -0.5014461472701374,
+        "coi_pct": 6.640932891939455,
+        "poi_pct": 0.21143861244312667,
+        "dp_blocks_10d": 121,
+        "dp_cumul_10d_M": 346.4448990599
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": true,
+        "call_oi_10d_pct": false,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": true
+      },
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": null,
+        "liquidity_oi": 185025
+      },
+      "edge": {
+        "sector_iv_rank": 79.4,
+        "skew_slope": -4.39,
+        "iv_hv_ratio": 0.79,
+        "combo_pass": true,
+        "ivr_pass": false,
+        "atr_pct": 11.39,
+        "stop_atr": 0.61,
+        "tight_stop": true,
+        "atr2x_stop_pct": 22.8
+      }
+    },
+    {
+      "ticker": "CIFR",
+      "spot_close": 16.33,
+      "spot_return_pct": -24.57,
+      "skew_change_5d": -17.19,
+      "near_skew": -20.7,
+      "near_dte": 4,
+      "put_wall_strike": 17.0,
+      "put_wall_oi_change": -4659,
+      "sector": "Technology",
+      "industry": "Information Technology Services",
+      "dte_earnings": null,
+      "filter_score": 1,
+      "filter_raw": {
+        "z_ncp": 0.01801076984219754,
+        "coi_pct": 20.193967100501364,
+        "poi_pct": 15.060844896174409,
+        "dp_blocks_10d": 272,
+        "dp_cumul_10d_M": 876.8942238720994
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": false,
+        "call_oi_10d_pct": false,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": true
+      },
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-02",
+        "liquidity_oi": 374780
+      },
+      "edge": {
+        "sector_iv_rank": 96.3,
+        "skew_slope": -2.41,
+        "iv_hv_ratio": 0.69,
+        "combo_pass": true,
+        "ivr_pass": false,
+        "atr_pct": 17.99,
+        "stop_atr": 0.39,
+        "tight_stop": true,
+        "atr2x_stop_pct": 36.0
+      }
+    },
+    {
+      "ticker": "HUT",
+      "spot_close": 85.66,
+      "spot_return_pct": -18.1,
+      "skew_change_5d": -10.71,
+      "near_skew": -14.01,
+      "near_dte": 4,
+      "put_wall_strike": 20.0,
+      "put_wall_oi_change": -2276,
+      "sector": "Financial Services",
+      "industry": "Capital Markets",
+      "dte_earnings": null,
+      "filter_score": 1,
+      "filter_raw": {
+        "z_ncp": 0.3514126945784585,
+        "coi_pct": 23.51762565674813,
+        "poi_pct": 16.936165077832754,
+        "dp_blocks_10d": 145,
+        "dp_cumul_10d_M": 476.7934652627998
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": false,
+        "call_oi_10d_pct": false,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": true
+      },
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-04",
+        "liquidity_oi": 97035
+      },
+      "edge": {
+        "sector_iv_rank": 92.1,
+        "skew_slope": -1.7,
+        "iv_hv_ratio": 0.81,
+        "combo_pass": true,
+        "ivr_pass": false,
+        "atr_pct": 13.32,
+        "stop_atr": 0.53,
+        "tight_stop": true,
+        "atr2x_stop_pct": 26.6
+      }
+    }
+  ]
+}

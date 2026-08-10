@@ -20,6 +20,27 @@
       "dp_cumul_10d_M": 967.284145713102,
       "parameters_version": "1.0.0",
       "added_at": "2026-08-03T21:02:54.795922Z"
+    },
+    {
+      "ticker": "HUT",
+      "entry_date": "2026-08-10",
+      "entry_price": 85.66,
+      "T1": 94.226,
+      "T2": 95.0826,
+      "T3": 102.79199999999999,
+      "STOP": 79.6638,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 1,
+      "z_ncp": 0.3514126945784585,
+      "coi_pct": 23.51762565674813,
+      "poi_pct": 16.936165077832754,
+      "dp_blocks_10d": 145,
+      "dp_cumul_10d_M": 476.7934652627998,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-08-10T21:06:33.162331Z"
     }
   ]
 }
