@@ -20,6 +20,27 @@
       "dp_cumul_10d_M": 967.284145713102,
       "parameters_version": "1.0.0",
       "added_at": "2026-08-03T21:02:54.795922Z"
+    },
+    {
+      "ticker": "CLSK",
+      "entry_date": "2026-08-10",
+      "entry_price": 11.59,
+      "T1": 12.749,
+      "T2": 12.8649,
+      "T3": 13.908,
+      "STOP": 10.778699999999999,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": 2,
+      "z_ncp": -0.5014461472701374,
+      "coi_pct": 6.640932891939455,
+      "poi_pct": 0.21143861244312667,
+      "dp_blocks_10d": 121,
+      "dp_cumul_10d_M": 346.4448990599,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-08-10T21:43:40.867411Z"
     }
   ]
 }

@@ -7,6 +7,7 @@ Two alert types:
 import os
 import datetime
 import requests
+import legs as LEGS
 import parameters as P
 
 
@@ -217,6 +218,9 @@ def format_watch_list(watch: list) -> str:
             why = f"NOISY chain (skew std {c['noise']['skew_std']:.0f})"
         elif L.get('cushion_pct') is not None and L.get('cushion_pct') < 0:
             why = 'spot below put wall'
+        elif L.get('cushion_pct') is not None and L.get('cushion_pct') > LEGS.MAX_CUSHION_PCT:
+            # HUT 2026-08-10 read "weak on both legs", which hid the real reason.
+            why = f"STALE WALL (spot +{L['cushion_pct']:.0f}% above it) — cushion void"
         else:
             why = 'weak on both legs'
         skew_s = f"{skew:+.0f}" if skew is not None else '?'

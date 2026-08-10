@@ -1,9 +1,9 @@
 {
   "scan_date": "2026-08-10",
-  "run_at": "2026-08-10T21:06:33.162585Z",
+  "run_at": "2026-08-10T21:43:40.868408Z",
   "parameters_version": "1.0.0",
   "min_filter_score_used": 3,
-  "picked_ticker": "HUT",
+  "picked_ticker": "CLSK",
   "notes": "",
   "candidates": [
     {
