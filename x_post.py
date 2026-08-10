@@ -126,6 +126,21 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     parts.append("⏱️ Short-term pullback — exits on target (win) or stop (loss), no time limit.")
     parts.append("Bot auto-closes at T1 or stop.")
     parts.append("")
+    # EDGE-VALIDATION block, published from 2026-08-10. Research only — it does NOT
+    # affect selection. Posting it publicly turns every signal into a PRE-REGISTERED
+    # prediction with a public timestamp: if the hypothesis holds we can point at
+    # calls made before the outcomes existed, and if it fails we say so in public,
+    # the same way we publish the losing trades.
+    e = c.get('edge')
+    if e:
+        parts.append("🔬 Edge-validation (research only — does NOT affect selection):")
+        parts.append(f"  sector_iv_rank {e['sector_iv_rank']} | skew_slope {e['skew_slope']} | iv/hv {e['iv_hv_ratio']}")
+        parts.append(f"  combo(rank≥60 & slope≤−1.6): {'PASS' if e['combo_pass'] else 'no'}"
+                     f" | iv/hv≥1.1: {'PASS' if e['ivr_pass'] else 'no'}")
+        if e.get('stop_atr') is not None:
+            warn = '  ⚠️ inside 1 daily range' if e.get('tight_stop') else ''
+            parts.append(f"  stop width: −7% = {e['stop_atr']}x ATR{warn}")
+        parts.append("")
     # Live results line + heat & peak block (auto-updates as trades close)
     try:
         import excursions
