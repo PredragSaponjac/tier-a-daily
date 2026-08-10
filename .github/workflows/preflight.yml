@@ -1,0 +1,52 @@
+name: Preflight - verify code paths before they ship
+
+# WHY: every public X/Telegram problem we have had was a code path that had never
+# actually run (format_close_for_x uncalled, x_drafts uncommitted, monitor missing
+# X secrets, a NameError behind a bare except). preflight.py exercises those paths
+# with known inputs and asserts the results.
+#
+# DELIBERATELY SEPARATE from the trading workflows. It does NOT gate skew_am,
+# skew_pm or the monitor — a bug in the checker must never be able to stop a real
+# signal from going out. It reports; humans act.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '**.py'
+      - '.github/workflows/*.yml'
+  schedule:
+    - cron: '0 13 * * 1-5'    # 13:00 UTC weekdays — before the 14:30 AM scan
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run preflight
+        id: pf
+        env:
+          SKEW_DB_PATH: ./skew_history.db
+        run: python preflight.py
+
+      - name: Telegram alert on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              --data-urlencode text="🔧 PREFLIGHT FAILED on tier-a-daily — a code path or wiring check is broken. Trading is NOT blocked, but signals/posts may misbehave. Check the Actions tab." >/dev/null || true
+          fi
