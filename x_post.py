@@ -6,6 +6,7 @@ User has X Premium → 4000 char/post limit (no thread splitting needed for typi
 Required env vars (from MEMORY.md):
 - X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET
 """
+import datetime as _dt
 import os
 
 try:
@@ -41,6 +42,19 @@ def post_to_x(text: str) -> bool:
         s = _session()
         resp = s.post(X_TWEET_ENDPOINT, json={'text': text}, timeout=15)
         if resp.status_code in (200, 201):
+            # LOG THE TWEET ID (added 2026-08-10). Without it a posted call cannot be
+            # found again to correct or delete: our API tier blocks timeline READS, so
+            # the id returned here is the only record. The HUT retraction needed the
+            # link hunted down by hand because this was never captured.
+            try:
+                tid = (resp.json().get('data') or {}).get('id')
+                if tid:
+                    print(f'[x] posted: https://x.com/PredragSaponjac/status/{tid}')
+                    with open('x_posted.log', 'a', encoding='utf-8') as fh:
+                        fh.write(f'{_dt.datetime.utcnow().isoformat()}Z\t{tid}\t'
+                                 f'{text.splitlines()[0][:80]}\n')
+            except Exception as e:
+                print(f'[x] posted OK but id not captured: {e}')
             return True
         print(f'[x] {resp.status_code}: {resp.text[:200]}')
         return False
