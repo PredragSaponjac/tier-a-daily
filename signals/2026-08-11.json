@@ -1,0 +1,54 @@
+{
+  "scan_date": "2026-08-11",
+  "run_at": "2026-08-11T20:51:32.339110Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "TDOC",
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "TDOC",
+      "spot_close": 6.81,
+      "spot_return_pct": -27.24,
+      "skew_change_5d": -11.72,
+      "near_skew": -10.16,
+      "near_dte": 3,
+      "put_wall_strike": 5.5,
+      "put_wall_oi_change": 0,
+      "sector": "Healthcare",
+      "industry": "Health Information Services",
+      "dte_earnings": null,
+      "filter_score": 0,
+      "filter_raw": {
+        "z_ncp": 0.3749503780572566,
+        "coi_pct": 5.084888216506966,
+        "poi_pct": 16.7340372875763,
+        "dp_blocks_10d": 4,
+        "dp_cumul_10d_M": 23.777357429899993
+      },
+      "filter_conditions_pass": {
+        "ncp_entry_z": false,
+        "call_oi_10d_pct": false,
+        "put_oi_10d_pct": false,
+        "dp_large_blocks_10d": false
+      },
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-28",
+        "liquidity_oi": 24093
+      },
+      "edge": {
+        "sector_iv_rank": 47.6,
+        "skew_slope": -1.7,
+        "iv_hv_ratio": 0.51,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 7.94,
+        "stop_atr": 0.88,
+        "tight_stop": true,
+        "atr2x_stop_pct": 15.9
+      }
+    }
+  ]
+}
