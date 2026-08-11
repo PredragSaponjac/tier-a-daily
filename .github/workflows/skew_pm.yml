@@ -141,5 +141,6 @@ jobs:
           git add x_drafts/ 2>/dev/null || true
           git add open_positions.json 2>/dev/null || true
           git add closed_trades.json 2>/dev/null || true
+          git add x_posted.log 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"
           git push || (git pull --rebase --autostash && git push) || true

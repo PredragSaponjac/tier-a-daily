@@ -192,6 +192,33 @@ def check_wiring():
     hard('post_to_x logs the tweet id', 'x_posted.log' in xp,
          'a published call could not be found again to correct/delete')
 
+    # GENERALISED ARTIFACT CHECK (added 2026-08-11). Twice now we shipped code that
+    # WRITES a file the workflows never commit — x_drafts/ (drafts vanished) and then
+    # x_posted.log (tweet ids vanished). Checking "the code logs it" is not enough;
+    # the artifact must also survive the runner. Every output path the code writes
+    # must appear in at least one workflow's git add list.
+    wf = ''.join((REPO / '.github/workflows' / f).read_text(encoding='utf-8')
+                 for f in ['skew_pm.yml', 'tier_a_monitor.yml'])
+    written = set()
+    for py in REPO.glob('*.py'):
+        if py.name == 'preflight.py':
+            continue
+        for m in re.finditer(r"open\(\s*f?['\"]([^'\"]+\.(?:log|json|txt|csv))['\"]",
+                             py.read_text(encoding='utf-8', errors='ignore')):
+            written.add(m.group(1))
+        for m in re.finditer(r"open\(\s*f?['\"]([a-z_]+/)",
+                             py.read_text(encoding='utf-8', errors='ignore')):
+            written.add(m.group(1))
+    for art in sorted(written):
+        base = art.split('/')[0] + ('/' if art.endswith('/') else '')
+        if base in ('.env', 'requirements.txt'):
+            continue
+        committed = (f'git add {base}' in wf) or (f'git add {art}' in wf)
+        gitignored = base.rstrip('/') in (REPO / '.gitignore').read_text(encoding='utf-8')
+        hard(f'artifact "{art}" survives the runner',
+             committed or gitignored,
+             'code writes it but NO workflow git-adds it — it will be discarded')
+
     # selection must NOT consult the metric still under validation
     mn = (REPO / 'main.py').read_text(encoding='utf-8')
     rank = mn[mn.find('def _rank_key'):mn.find('def _rank_key') + 500]
