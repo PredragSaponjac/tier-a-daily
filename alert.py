@@ -106,18 +106,14 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     if v and v.get('details', {}).get('earnings', {}).get('next_earnings'):
         lines.append(f"• Next earnings: {v['details']['earnings']['next_earnings']}")
     lines.append("")
-    # UW UNAVAILABLE != 0/4 (added 2026-08-13, UW subscription ended). Printing "0/4"
-    # with ❌s when we never received data is a false claim — it reads as "flow was
-    # checked and found absent" and makes a good setup look weak. Say NOT MEASURED.
+    # UW SECTION IS OMITTED ENTIRELY when there is no UW data (subscription ended
+    # 2026-08-13). Printing "0/4" would be a false claim (we never read the flow),
+    # and printing "NOT MEASURED" just advertises a missing feed every single day.
+    # The layer was always a bonus, so the honest and clean choice is silence.
+    # It reappears automatically the moment UW_API_KEY works again — no code change.
     uw_missing = f.get('score') is None
-    if uw_missing:
-        lines.append("🔎 UW INSTITUTIONAL FLOW — NOT MEASURED (no UW data available).")
-        lines.append(f"   reason: {f.get('error', 'unknown')}")
-        lines.append("   This is NOT a 0/4 — the flow layer simply was not read today.")
-        lines.append("   It was always a BONUS layer: the Tier A skew setup above IS the")
-        lines.append("   signal and stands on its own, as it did on every 0/4 call before.")
-        conds = {}
-    else:
+    conds = {}
+    if not uw_missing:
         lines.append(f"🔎 UW INSTITUTIONAL FLOW — supplementary confirmation only, NOT the signal ({score}/4):")
         conds = f.get('conditions', {})
     for key, cond in conds.items():
@@ -137,13 +133,14 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
             'dp_large_blocks_10d': f'dark pool large blocks (10d): {val_str}',
         }
         lines.append(f"{check} {label_map.get(key, key+': '+val_str)}")
-    lines.append("")
+    if not uw_missing:
+        lines.append("")
     # Only make the strong statistical-pattern claim when the flow actually
     # confirms it (score >= 3). On weaker scores, state honestly that the skew
     # setup is present but flow is not confirming - never attach the p=0.0007
     # research claim to a setup that doesn't match the full pattern.
     if uw_missing:
-        pass                      # already explained above; do NOT claim a 0/4 verdict
+        pass                      # section omitted entirely — no UW data to report
     elif score >= 3:
         lines.append(f"→ Flow CONFIRMS ({score}/4): matches the 'structural unwind + capitulation'")
         lines.append("  research pattern (Bonferroni-significant, p=0.0007) — adds conviction on top.")
@@ -151,7 +148,8 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
         lines.append(f"→ Flow {score}/4: no extra institutional confirmation today. This is a BONUS")
         lines.append("  layer, NOT a requirement — the Tier A skew setup above IS the signal and")
         lines.append("  stands on its own. (A 0/4 does not make the setup weak.)")
-    lines.append("")
+    if not uw_missing:
+        lines.append("")
     lines.append(f"ENTRY: ${entry:.2f}")
     lines.append(f"🎯 T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%) — bot will auto-close here")
     lines.append(f"   T2 (hold longer): ${T2:.2f} (+{tps['tp2']:.0f}%) — optional")
