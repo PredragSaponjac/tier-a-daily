@@ -112,12 +112,17 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     if c.get('sector'):
         parts.append(f"  • Sector: {c.get('sector')} · near-dte {c.get('near_dte', '?')}")
     parts.append("")
-    parts.append(f"🔎 UW flow — bonus confirmation only, NOT the signal ({score}/4):")
-    z = r.get('z_ncp'); coi = r.get('coi_pct'); poi = r.get('poi_pct'); dp = r.get('dp_blocks_10d')
-    if z is not None:   parts.append(f"  • NCP entry z-score: {z:+.2f}")
-    if coi is not None: parts.append(f"  • Call OI 10d: {coi:+.1f}%")
-    if poi is not None: parts.append(f"  • Put OI 10d: {poi:+.1f}%")
-    if dp is not None:  parts.append(f"  • Dark pool large blocks (10d): {dp}")
+    # UW UNAVAILABLE != 0/4 — see alert.py. Never publish a "0/4" we did not measure.
+    if f.get('score') is None:
+        parts.append("🔎 UW flow — NOT MEASURED (no UW data). This is not a 0/4; the flow")
+        parts.append("  layer simply wasn't read. It was always a bonus — the skew setup IS the signal.")
+    else:
+        parts.append(f"🔎 UW flow — bonus confirmation only, NOT the signal ({score}/4):")
+        z = r.get('z_ncp'); coi = r.get('coi_pct'); poi = r.get('poi_pct'); dp = r.get('dp_blocks_10d')
+        if z is not None:   parts.append(f"  • NCP entry z-score: {z:+.2f}")
+        if coi is not None: parts.append(f"  • Call OI 10d: {coi:+.1f}%")
+        if poi is not None: parts.append(f"  • Put OI 10d: {poi:+.1f}%")
+        if dp is not None:  parts.append(f"  • Dark pool large blocks (10d): {dp}")
     parts.append("")
     parts.append(f"Entry: ${entry:.2f}")
     parts.append(f"T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%)")

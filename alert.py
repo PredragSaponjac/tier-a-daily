@@ -106,8 +106,20 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     if v and v.get('details', {}).get('earnings', {}).get('next_earnings'):
         lines.append(f"• Next earnings: {v['details']['earnings']['next_earnings']}")
     lines.append("")
-    lines.append(f"🔎 UW INSTITUTIONAL FLOW — supplementary confirmation only, NOT the signal ({score}/4):")
-    conds = f.get('conditions', {})
+    # UW UNAVAILABLE != 0/4 (added 2026-08-13, UW subscription ended). Printing "0/4"
+    # with ❌s when we never received data is a false claim — it reads as "flow was
+    # checked and found absent" and makes a good setup look weak. Say NOT MEASURED.
+    uw_missing = f.get('score') is None
+    if uw_missing:
+        lines.append("🔎 UW INSTITUTIONAL FLOW — NOT MEASURED (no UW data available).")
+        lines.append(f"   reason: {f.get('error', 'unknown')}")
+        lines.append("   This is NOT a 0/4 — the flow layer simply was not read today.")
+        lines.append("   It was always a BONUS layer: the Tier A skew setup above IS the")
+        lines.append("   signal and stands on its own, as it did on every 0/4 call before.")
+        conds = {}
+    else:
+        lines.append(f"🔎 UW INSTITUTIONAL FLOW — supplementary confirmation only, NOT the signal ({score}/4):")
+        conds = f.get('conditions', {})
     for key, cond in conds.items():
         check = "✅" if cond['pass'] else "❌"
         val = cond.get('value')
@@ -130,7 +142,9 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
     # confirms it (score >= 3). On weaker scores, state honestly that the skew
     # setup is present but flow is not confirming - never attach the p=0.0007
     # research claim to a setup that doesn't match the full pattern.
-    if score >= 3:
+    if uw_missing:
+        pass                      # already explained above; do NOT claim a 0/4 verdict
+    elif score >= 3:
         lines.append(f"→ Flow CONFIRMS ({score}/4): matches the 'structural unwind + capitulation'")
         lines.append("  research pattern (Bonferroni-significant, p=0.0007) — adds conviction on top.")
     else:
