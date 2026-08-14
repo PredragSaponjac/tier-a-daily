@@ -166,6 +166,47 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
     return row
 
 
+def _setup_note(ticker: str, entry_date: str, closed: dict) -> str:
+    """Reconstruct the 'why we entered' note from the archived signal.
+
+    The Sheet column is `notes (why we entered)`. Every hand-entered trade has one;
+    auto-recorded closes were leaving it blank (RDDT 2026-08-14). Built from the
+    archive so it states the MEASUREMENTS that qualified the trade — never adjectives.
+    """
+    try:
+        arc = ROOT / 'signals' / f'{entry_date}.json'
+        if not arc.exists():
+            return ''
+        cands = json.loads(arc.read_text(encoding='utf-8')).get('candidates', [])
+        c = next((x for x in cands if x.get('ticker') == ticker), None)
+        if not c:
+            return ''
+        spot, pw = c.get('spot_close'), c.get('put_wall_strike')
+        cushion = ((spot / pw - 1) * 100) if (spot and pw) else None
+        bits = []
+        if c.get('spot_return_pct') is not None:
+            bits.append(f"washout {c['spot_return_pct']:+.1f}%/5d")
+        if c.get('skew_change_5d') is not None:
+            bits.append(f"skewΔ5d {c['skew_change_5d']:+.1f}")
+        if c.get('near_skew') is not None:
+            bits.append(f"near-skew {c['near_skew']:+.1f}")
+        if cushion is not None:
+            bits.append(f"{cushion:+.1f}% above put wall ${pw:g}")
+        if c.get('put_wall_oi_change') is not None:
+            bits.append(f"wall OI {c['put_wall_oi_change']:+,}")
+        note = 'Tier A: ' + ', '.join(bits) + '.'
+        sc = c.get('filter_score')
+        note += f" UW {sc}/4." if sc is not None else " UW not measured."
+        e = c.get('edge') or {}
+        if e.get('sector_iv_rank') is not None:
+            note += (f" [validation-only: sector_iv_rank {e['sector_iv_rank']}, "
+                     f"combo {'pass' if e.get('combo_pass') else 'no'}, "
+                     f"stop {e.get('stop_atr')}x ATR]")
+        return note
+    except Exception:
+        return ''
+
+
 def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
     """ALSO write the durable record to closed_trades.json.
 
@@ -235,7 +276,7 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
         'peak_day': row.get('time_to_MFE_days'),
         'days_to_mfe': row.get('time_to_MFE_days'),
         'first_green_day': first_green,
-        'setup': '',
+        'setup': _setup_note(row['ticker'], row['entry_date'], closed),
         'src': 'monitor',
         'computed_on': datetime.utcnow().date().isoformat(),
         'note': 'auto-recorded by monitor close',

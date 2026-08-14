@@ -309,7 +309,7 @@
     "peak_day": 11,
     "days_to_mfe": 11,
     "first_green_day": 1,
-    "setup": "",
+    "setup": "Tier A: washout -16.8%/5d, skewΔ5d -7.1, near-skew -8.1, +34.5% above put wall $115, wall OI -5,577. UW 1/4. [validation-only: sector_iv_rank 54.1, combo no, stop 0.74x ATR]",
     "src": "monitor",
     "computed_on": "2026-08-14",
     "note": "auto-recorded by monitor close",
