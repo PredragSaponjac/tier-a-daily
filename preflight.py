@@ -219,6 +219,44 @@ def check_wiring():
              committed or gitignored,
              'code writes it but NO workflow git-adds it — it will be discarded')
 
+    # CLOSE-RECORD LOOP (added 2026-08-14, earned twice: ADSK 7/16, RDDT 8/14).
+    # The file a close WRITES must be the same file the Sheet and the record line
+    # READ. It was not: close_position appended only to the gitignored track_record.csv
+    # while sheet_sync/excursions read closed_trades.json, so every auto-close vanished.
+    # FUNCTIONAL, not grep: a string check passed even with the call site deleted,
+    # because the function definition still contained the words. Actually close a
+    # fake position in a temp dir and assert the durable record appears.
+    try:
+        import tempfile, json as _json
+        from pathlib import Path as _P
+        import position_tracker as PT
+        tmp = _P(tempfile.mkdtemp())
+        keep = (PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE)
+        try:
+            PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = tmp, tmp / 'open.json', tmp / 'rec.csv'
+            PT._save_open({'positions': [{
+                'ticker': 'ZZTEST', 'entry_date': '2026-01-02', 'entry_price': 100.0,
+                'T1': 110.0, 'T2': 111.0, 'T3': 120.0, 'STOP': 93.0,
+                'MAE_pct': -2.0, 'MAE_date': '2026-01-05',
+                'MFE_pct': 12.0, 'MFE_date': '2026-01-09', 'filter_score': 2}]})
+            PT.close_position('ZZTEST', '2026-01-02', 110.0, 'TP1', '2026-01-10')
+            ctf = tmp / 'closed_trades.json'
+            got = _json.loads(ctf.read_text(encoding='utf-8')) if ctf.exists() else []
+            hard('close_position ACTUALLY records to closed_trades.json (functional)',
+                 any(t.get('ticker') == 'ZZTEST' and t.get('outcome') == 'WIN' for t in got),
+                 'a real close did NOT reach the durable record')
+        finally:
+            PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = keep
+    except Exception as e:
+        hard('close_position ACTUALLY records to closed_trades.json (functional)',
+             False, f'{type(e).__name__}: {e}')
+    ss = (REPO / 'sheet_sync.py').read_text(encoding='utf-8')
+    hard('the Sheet reads the same file closes write',
+         'closed_trades' in ss, 'sheet reads a different store than the close writes')
+    hard('closed_trades.json is NOT gitignored',
+         'closed_trades.json' not in (REPO / '.gitignore').read_text(encoding='utf-8'),
+         'the durable record would be discarded on the runner')
+
     # selection must NOT consult the metric still under validation
     mn = (REPO / 'main.py').read_text(encoding='utf-8')
     rank = mn[mn.find('def _rank_key'):mn.find('def _rank_key') + 500]

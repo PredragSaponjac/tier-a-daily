@@ -7,7 +7,7 @@ Two files:
 import csv
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 ROOT = Path(__file__).parent
 OPEN_FILE = ROOT / 'open_positions.json'
@@ -162,7 +162,94 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
             w.writeheader()
         w.writerow(row)
 
+    _append_closed_trade(closed, row, days_to_exit)
     return row
+
+
+def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
+    """ALSO write the durable record to closed_trades.json.
+
+    ROOT-CAUSE FIX (2026-08-14, earned twice: ADSK 7/16 and RDDT 8/14).
+    close_position only appended to track_record.csv — which is GITIGNORED — so on the
+    GitHub runner the closed record was written and immediately thrown away. Meanwhile
+    the Google Sheet Track Record tab, the X/Telegram record line (excursions.py) and
+    exit_model.py ALL read closed_trades.json, and nothing wrote it automatically.
+    Net effect: a trade closed correctly, posted correctly, then vanished from the
+    record and had to be re-entered by hand. Twice. This closes the loop.
+
+    Idempotent: an already-recorded (ticker, entry_date) is a no-op, so a re-run or a
+    duplicate monitor pass cannot double-count a trade.
+    """
+    path = ROOT / 'closed_trades.json'
+    try:
+        trades = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
+    except Exception as e:
+        print(f'  [record] could not read closed_trades.json ({e}) — NOT overwriting')
+        return
+    if any(t.get('ticker') == row['ticker'] and t.get('entry_date') == row['entry_date']
+           for t in trades):
+        return
+
+    reason = row['exit_reason']
+    realized = row['realized_return_pct']
+
+    # Fill the day-columns from real price action, else the Sheet renders a WIN as
+    # "no" in the conservative column (the NNE 2026-06-15 bug: a +10% winner showed
+    # "no (peak +14.4%)"). Best-effort — a data hiccup must never block the record.
+    conserv_day = first_green = also = None
+    try:
+        import yfinance as yf
+        e_px = row['entry_price']
+        e_dt = datetime.fromisoformat(row['entry_date']).date()
+        df = yf.Ticker(row['ticker']).history(
+            start=(e_dt + timedelta(days=1)).isoformat(),
+            end=(datetime.fromisoformat(row['exit_date']).date() + timedelta(days=1)).isoformat(),
+            interval='1d', auto_adjust=True)
+        for i, (ts, r) in enumerate(df.iterrows(), start=1):
+            d = (ts.date() - e_dt).days
+            if conserv_day is None and float(r['High']) >= e_px * 1.075:
+                conserv_day = d
+            if first_green is None and float(r['Close']) > e_px:
+                first_green = d
+        peak = float(df['High'].max()) if len(df) else None
+        if peak and closed.get('T3') and peak >= closed['T3']:
+            also = f"TP3 +{(closed['T3']/e_px-1)*100:.0f}%"
+        elif peak and closed.get('T2') and peak >= closed['T2']:
+            also = f"TP2 +{(closed['T2']/e_px-1)*100:.0f}%"
+    except Exception as e:
+        print(f'  [record] day-columns not computed ({e}) — record still written')
+
+    trades.append({
+        'ticker': row['ticker'],
+        'entry_date': row['entry_date'],
+        'entry_price': row['entry_price'],
+        'outcome': 'WIN' if realized > 0 else 'LOSS',
+        'exit_date': row['exit_date'],
+        'exit_price': row['exit_price'],
+        'result_pct': round(realized, 1),
+        'exit_reason': reason,
+        'T1': closed.get('T1'), 'T2': closed.get('T2'), 'T3': closed.get('T3'),
+        'stop': closed.get('STOP'),
+        'heat_pct': row['MAE_pct'],
+        'peak_pct': row['MFE_pct'],
+        'peak_day': row.get('time_to_MFE_days'),
+        'days_to_mfe': row.get('time_to_MFE_days'),
+        'first_green_day': first_green,
+        'setup': '',
+        'src': 'monitor',
+        'computed_on': datetime.utcnow().date().isoformat(),
+        'note': 'auto-recorded by monitor close',
+        'conserv_day': conserv_day,
+        'tp1_day': days_to_exit if reason == 'TP1' else None,
+        'tp2_day': None,
+        'tp3_day': None,
+        'stop_day': days_to_exit if reason == 'STOP' else None,
+        'also_reached': also or '—',
+        'uw_score': closed.get('filter_score') or 0,
+    })
+    path.write_text(json.dumps(trades, indent=2, ensure_ascii=False), encoding='utf-8')
+    print(f"  [record] {row['ticker']} appended to closed_trades.json "
+          f"({len(trades)} total)")
 
 
 if __name__ == '__main__':
