@@ -1,0 +1,109 @@
+{
+  "scan_date": "2026-08-17",
+  "run_at": "2026-08-17T20:50:40.250704Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "SEDG",
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "GPRO",
+      "spot_close": 0.61,
+      "spot_return_pct": -19.74,
+      "skew_change_5d": -381.25,
+      "near_skew": -125.0,
+      "near_dte": 4,
+      "put_wall_strike": 0.5,
+      "put_wall_oi_change": 0,
+      "sector": "Technology",
+      "industry": "Consumer Electronics",
+      "dte_earnings": 80,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 54963
+      },
+      "edge": {
+        "sector_iv_rank": 54.9,
+        "skew_slope": 8.75,
+        "iv_hv_ratio": 0.85,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 8.74,
+        "stop_atr": 0.8,
+        "tight_stop": true,
+        "atr2x_stop_pct": 17.5
+      }
+    },
+    {
+      "ticker": "LEVI",
+      "spot_close": 22.57,
+      "spot_return_pct": -8.33,
+      "skew_change_5d": -7.13,
+      "near_skew": -10.35,
+      "near_dte": 4,
+      "put_wall_strike": 25.0,
+      "put_wall_oi_change": 0,
+      "sector": "Consumer Cyclical",
+      "industry": "Apparel Manufacturing",
+      "dte_earnings": 44,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-09-30",
+        "liquidity_oi": 24583
+      },
+      "edge": {
+        "sector_iv_rank": 10.2,
+        "skew_slope": -1.31,
+        "iv_hv_ratio": 1.1,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 2.81,
+        "stop_atr": 2.49,
+        "tight_stop": false,
+        "atr2x_stop_pct": 5.6
+      }
+    },
+    {
+      "ticker": "SEDG",
+      "spot_close": 30.79,
+      "spot_return_pct": -31.76,
+      "skew_change_5d": -12.11,
+      "near_skew": -8.4,
+      "near_dte": 4,
+      "put_wall_strike": 25.0,
+      "put_wall_oi_change": -188,
+      "sector": "Technology",
+      "industry": "Solar",
+      "dte_earnings": 79,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-04",
+        "liquidity_oi": 37027
+      },
+      "edge": {
+        "sector_iv_rank": 71.4,
+        "skew_slope": 0.3,
+        "iv_hv_ratio": 0.59,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 11.64,
+        "stop_atr": 0.6,
+        "tight_stop": true,
+        "atr2x_stop_pct": 23.3
+      }
+    }
+  ]
+}

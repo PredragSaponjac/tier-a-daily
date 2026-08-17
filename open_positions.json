@@ -41,6 +41,27 @@
       "dp_cumul_10d_M": 23.777357429899993,
       "parameters_version": "1.0.0",
       "added_at": "2026-08-11T20:51:32.338881Z"
+    },
+    {
+      "ticker": "SEDG",
+      "entry_date": "2026-08-17",
+      "entry_price": 30.79,
+      "T1": 33.869,
+      "T2": 34.1769,
+      "T3": 36.948,
+      "STOP": 28.6347,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": null,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-08-17T20:50:40.250438Z"
     }
   ]
 }
