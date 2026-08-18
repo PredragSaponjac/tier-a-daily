@@ -1,0 +1,175 @@
+{
+  "scan_date": "2026-08-18",
+  "run_at": "2026-08-18T20:56:32.419881Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "INOD",
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "DECK",
+      "spot_close": 89.51,
+      "spot_return_pct": -10.37,
+      "skew_change_5d": -7.03,
+      "near_skew": -10.69,
+      "near_dte": 3,
+      "put_wall_strike": 92.0,
+      "put_wall_oi_change": -1,
+      "sector": "Consumer Cyclical",
+      "industry": "Footwear & Accessories",
+      "dte_earnings": 65,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-22",
+        "liquidity_oi": 12107
+      },
+      "edge": {
+        "sector_iv_rank": 19.3,
+        "skew_slope": 3.28,
+        "iv_hv_ratio": 1.06,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 3.34,
+        "stop_atr": 2.1,
+        "tight_stop": false,
+        "atr2x_stop_pct": 6.7
+      }
+    },
+    {
+      "ticker": "ENPH",
+      "spot_close": 37.58,
+      "spot_return_pct": -10.03,
+      "skew_change_5d": -7.86,
+      "near_skew": -10.64,
+      "near_dte": 3,
+      "put_wall_strike": 40.0,
+      "put_wall_oi_change": 0,
+      "sector": "Technology",
+      "industry": "Solar",
+      "dte_earnings": 70,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-27",
+        "liquidity_oi": 73000
+      },
+      "edge": {
+        "sector_iv_rank": 45.9,
+        "skew_slope": -2.89,
+        "iv_hv_ratio": 1.15,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 5.6,
+        "stop_atr": 1.25,
+        "tight_stop": false,
+        "atr2x_stop_pct": 11.2
+      }
+    },
+    {
+      "ticker": "INOD",
+      "spot_close": 61.62,
+      "spot_return_pct": -12.23,
+      "skew_change_5d": -10.01,
+      "near_skew": -19.53,
+      "near_dte": 3,
+      "put_wall_strike": 48.0,
+      "put_wall_oi_change": 0,
+      "sector": "Technology",
+      "industry": "Information Technology Services",
+      "dte_earnings": 79,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 34796
+      },
+      "edge": {
+        "sector_iv_rank": 58.6,
+        "skew_slope": -0.03,
+        "iv_hv_ratio": 0.59,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 8.68,
+        "stop_atr": 0.81,
+        "tight_stop": true,
+        "atr2x_stop_pct": 17.4
+      }
+    },
+    {
+      "ticker": "SERV",
+      "spot_close": 4.55,
+      "spot_return_pct": -20.04,
+      "skew_change_5d": -25.0,
+      "near_skew": -17.19,
+      "near_dte": 3,
+      "put_wall_strike": 8.5,
+      "put_wall_oi_change": -49,
+      "sector": "Industrials",
+      "industry": "Integrated Freight & Logistics",
+      "dte_earnings": 85,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": null,
+        "liquidity_oi": 47948
+      },
+      "edge": {
+        "sector_iv_rank": 70.0,
+        "skew_slope": -2.43,
+        "iv_hv_ratio": 0.69,
+        "combo_pass": true,
+        "ivr_pass": false,
+        "atr_pct": 9.84,
+        "stop_atr": 0.71,
+        "tight_stop": true,
+        "atr2x_stop_pct": 19.7
+      }
+    },
+    {
+      "ticker": "TPR",
+      "spot_close": 132.26,
+      "spot_return_pct": -15.2,
+      "skew_change_5d": -10.6,
+      "near_skew": -12.3,
+      "near_dte": 3,
+      "put_wall_strike": 152.5,
+      "put_wall_oi_change": 0,
+      "sector": "Consumer Cyclical",
+      "industry": "Luxury Goods",
+      "dte_earnings": 79,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 18932
+      },
+      "edge": {
+        "sector_iv_rank": 26.1,
+        "skew_slope": -1.16,
+        "iv_hv_ratio": 0.47,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 4.81,
+        "stop_atr": 1.46,
+        "tight_stop": false,
+        "atr2x_stop_pct": 9.6
+      }
+    }
+  ]
+}
