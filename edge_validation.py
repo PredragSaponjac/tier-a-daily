@@ -98,6 +98,26 @@ def main():
     else:
         print('    no ATR data yet')
 
+    # ---- H5: the DAY-3 behavioural rule (2026-08-17). TRACKING ONLY — not a rule.
+    # Verified in the 102-candidate edge hunt (green by day 3 -> loss10 3% vs 34%,
+    # Bonferroni-surviving) and perfectly separated in our own 11 closed trades
+    # (all 8 winners green by day 3; all 3 losers never green). This is a POST-ENTRY
+    # management signal, not an entry filter — you cannot know it when you enter.
+    d3 = d[d['fwd_3d_return'].notna()].copy()
+    print('\n  H5 day-3 behaviour (post-entry management signal, NOT an entry filter)')
+    if len(d3) >= 4:
+        d3['green3'] = d3['fwd_3d_return'] >= 0
+        for lab, sub in [('green by day 3', d3[d3.green3]), ('red through day 3', d3[~d3.green3])]:
+            lab_n = sub[sub['loss10'].notna()]
+            if len(lab_n):
+                print(f'    {lab:20s} n={len(sub):3d} (labeled {len(lab_n)})  '
+                      f'loss10={lab_n["loss10"].mean():.2f}  big20={sub["big20"].mean() if sub["big20"].notna().any() else float("nan"):.2f}')
+            else:
+                print(f'    {lab:20s} n={len(sub):3d}  (no 10d labels yet)')
+        print('    baseline from the study: loss10 3% if green by d3 vs 34% if red.')
+    else:
+        print(f'    only {len(d3)} fresh candidates with 3d data — too few yet')
+
     print('\nreminder: wire-in requires (a) n>=10 AND Fisher p<0.05, or (b) n>=15 review.')
     print('Selection logic AND the -7% stop stay untouched until you sign off on a scorecard.')
 
