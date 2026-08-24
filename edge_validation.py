@@ -6,6 +6,19 @@ candidates with scan_date >= 2026-07-28, whether the edge-hunt findings hold
 out-of-sample:
 
   H1 CONFIRMED-in-backtest: sector_iv_rank >= 60            (big-winner separator)
+
+  ⚠️ 2026-08-24 HEAD-TO-HEAD on 51 qualified candidates (the current live gates,
+  stop-aware outcomes, Bonferroni bar p<0.0125 for 4 metrics). NOTHING survived
+  correction, and one component was measured NULL:
+      stop_atr    >= 0.5   gap +4.63pp  p=0.083  both periods agree  (fail bucket n=7)
+      sector_iv_rank >=60  gap +4.01pp  p=0.116  late period untestable (6 usable rows)
+      iv_hv_ratio >= 1.1   gap +3.00pp  p=0.127  BOTH periods agree, full n=51
+      skew_slope  <= -1.6  gap +0.48pp  p=0.482  periods DISAGREE  <-- NULL
+  => H2 (the combo) carries a dead component: its apparent power is H1 alone, with
+     slope adding noise. Read H2 as confirmatory of H1, never as independent evidence.
+  => H3 (iv_hv_ratio) has the BEST robustness profile (full sample, both halves agree)
+     and deserves equal billing with H1 despite the smaller point estimate.
+  Thresholds remain FROZEN — this note records measurements, it does not retune them.
   H2 CONFIRMED-in-backtest: H1 AND skew_slope <= -1.6       (combo, 77%/0% in study)
   H3 HYPOTHESIS:            iv_hv_ratio >= 1.1              (disaster avoidance)
 
@@ -66,7 +79,11 @@ def main():
         return
     n_lab = int(d['fwd_20d_return'].notna().sum())
     print(f'labeled with fwd_20d: {n_lab}  (labels auto-fill ~20 trading days after each scan)')
-    print(f'progress: {len(d)}/10 to interim look, /15 to formal decision\n')
+    # PROGRESS IS GATED BY LABELS, NOT BY CANDIDATE COUNT. Showing "15/10" while only
+    # 2 rows have forward returns reads as "threshold passed" when nothing is testable.
+    print(f'progress: {n_lab} LABELED / 10 for the interim look, /15 for the formal '
+          f'decision   ({len(d)} candidates collected, {len(d)-n_lab} still awaiting '
+          f'their 20-day forward return)\n')
 
     d['big20'] = (d['fwd_20d_return'] >= 15).astype(float).where(d['fwd_20d_return'].notna())
     d['loss10'] = (d['fwd_10d_return'] <= -7).astype(float).where(d['fwd_10d_return'].notna())
@@ -75,12 +92,21 @@ def main():
 
     h1 = d['sr'].notna()
     print(f'sector_iv_rank coverage: {int(h1.sum())}/{len(d)} (0.0-coded rows excluded)')
+    if int(h1.sum()) < len(d):
+        print(f'  ⚠️ {len(d)-int(h1.sum())} fresh row(s) still missing sector_iv_rank — '
+              'if this is nonzero AFTER 2026-07-28 the 5/28 regression is back '
+              '(preflight has a guard, but check skew_tracker compute_sector_ranks).')
     dd = d[h1].copy()
     if len(dd):
         bucket_stats(dd, dd['sr'] >= SECTOR_IV_RANK_MIN, f'H1: sector_iv_rank >= {SECTOR_IV_RANK_MIN:.0f}')
         combo = (dd['sr'] >= SECTOR_IV_RANK_MIN) & (dd['ss'].notna()) & (dd['ss'] <= SKEW_SLOPE_MAX)
         bucket_stats(dd, combo, f'H2: combo (rank >= {SECTOR_IV_RANK_MIN:.0f} AND slope <= {SKEW_SLOPE_MAX})')
-    bucket_stats(d, d['iv_hv_ratio'].fillna(0) >= IV_HV_RATIO_MIN, f'H3: iv_hv_ratio >= {IV_HV_RATIO_MIN}')
+        print('    ^ NOTE: skew_slope measured NULL on 51 historical candidates '
+              '(gap +0.48pp, p=0.482,\n      periods disagree). H2 is expected to '
+              'merely track H1 — not independent evidence.')
+    bucket_stats(d, d['iv_hv_ratio'].fillna(0) >= IV_HV_RATIO_MIN,
+                 f'H3: iv_hv_ratio >= {IV_HV_RATIO_MIN}  [CO-PRIMARY with H1 — best '
+                 f'robustness: full sample, both period halves agree]')
 
     # ---- H4: stop-width diagnostic (2026-07-31 study). LOG ONLY — live stop stays -7%.
     from edge_metrics import atr_profile, LIVE_STOP_PCT, STOP_ATR_TIGHT
