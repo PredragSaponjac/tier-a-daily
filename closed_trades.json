@@ -17,7 +17,7 @@
     "peak_day": 8,
     "days_to_mfe": 9,
     "first_green_day": 3,
-    "setup": "Skew capitulation reversal â€” washed-out spot, skew collapsing (fear unwinding), spot held above put wall. First AR-style win.",
+    "setup": "Skew capitulation reversal — washed-out spot, skew collapsing (fear unwinding), spot held above put wall. First AR-style win.",
     "src": "15m",
     "computed_on": "2026-06-03",
     "note": "",
@@ -26,7 +26,7 @@
     "tp2_day": null,
     "tp3_day": null,
     "stop_day": null,
-    "also_reached": "â€”",
+    "also_reached": "—",
     "uw_score": 0
   },
   {
@@ -47,7 +47,7 @@
     "peak_day": 11,
     "days_to_mfe": 14,
     "first_green_day": 1,
-    "setup": "Biotech skew washout â€” sharp 5d drop, skew flush, put-wall OI shrinking. Cleanest healthcare setup.",
+    "setup": "Biotech skew washout — sharp 5d drop, skew flush, put-wall OI shrinking. Cleanest healthcare setup.",
     "src": "15m",
     "computed_on": "2026-06-03",
     "note": "",
@@ -77,7 +77,7 @@
     "peak_day": 6,
     "days_to_mfe": 7,
     "first_green_day": 3,
-    "setup": "Skew collapse after hard selloff â€” fear exhausted, not building. Hit T1+T2 then round-tripped (why scale-out is mandatory).",
+    "setup": "Skew collapse after hard selloff — fear exhausted, not building. Hit T1+T2 then round-tripped (why scale-out is mandatory).",
     "src": "15m",
     "computed_on": "2026-06-03",
     "note": "win ONLY if scaled out at T1/T2; full hold round-tripped & stopped",
@@ -107,7 +107,7 @@
     "peak_day": null,
     "days_to_mfe": null,
     "first_green_day": null,
-    "setup": "Looked clean but spot sat ~1% ON the put wall = no cushion. The structural flaw that broke it â€” entered anyway, stopped.",
+    "setup": "Looked clean but spot sat ~1% ON the put wall = no cushion. The structural flaw that broke it — entered anyway, stopped.",
     "src": "15m",
     "computed_on": "2026-06-03",
     "note": "blew through -7% stop, never recovered in window",
@@ -116,7 +116,7 @@
     "tp2_day": null,
     "tp3_day": null,
     "stop_day": 4,
-    "also_reached": "â€”",
+    "also_reached": "—",
     "uw_score": 0
   },
   {
@@ -197,7 +197,7 @@
     "peak_day": null,
     "days_to_mfe": null,
     "first_green_day": null,
-    "setup": "+8.8% cushion looked safe but was only ~1.3 daily moves at 110% IV â€” eaten in one session. Late entry (skew faded to -4), put wall rising toward spot, UW 1/4 (fear building). Earned the volatility-scaled cushion rule.",
+    "setup": "+8.8% cushion looked safe but was only ~1.3 daily moves at 110% IV — eaten in one session. Late entry (skew faded to -4), put wall rising toward spot, UW 1/4 (fear building). Earned the volatility-scaled cushion rule.",
     "src": "1d",
     "computed_on": "2026-06-09",
     "note": "stopped -7% on 6/9; broke the $20 put wall (-10.5% low). 2nd loss.",
@@ -206,7 +206,7 @@
     "tp2_day": null,
     "tp3_day": null,
     "stop_day": 1,
-    "also_reached": "â€”",
+    "also_reached": "—",
     "uw_score": 1
   },
   {
@@ -249,7 +249,7 @@
     "peak_day": null,
     "days_to_mfe": null,
     "first_green_day": null,
-    "setup": "Strong setup (skew -13 + cushion 17.9x, UW 3/4) that reversed and stopped -7% â€” even strong-leg+flow can fail; stop capped it.",
+    "setup": "Strong setup (skew -13 + cushion 17.9x, UW 3/4) that reversed and stopped -7% — even strong-leg+flow can fail; stop capped it.",
     "uw_score": 3,
     "src": "1d",
     "computed_on": "2026-06-18",
@@ -259,7 +259,7 @@
     "tp2_day": null,
     "tp3_day": null,
     "stop_day": 4,
-    "also_reached": "â€”"
+    "also_reached": "—"
   },
   {
     "ticker": "ADSK",
@@ -279,7 +279,7 @@
     "peak_day": 22,
     "days_to_mfe": 22,
     "first_green_day": 1,
-    "setup": "Skew -14 + vol-cushion 9.5x, calm 47% IV â€” strongest of the three 6/15 signals. Held 22 trading days through a -6.6% drawdown to reach T1.",
+    "setup": "Skew -14 + vol-cushion 9.5x, calm 47% IV — strongest of the three 6/15 signals. Held 22 trading days through a -6.6% drawdown to reach T1.",
     "src": "monitor",
     "computed_on": "2026-07-20",
     "note": "Closed by monitor 2026-07-16 at TP1. Record was lost because the monitor workflow never committed closed_trades.json (root cause fixed 2026-07-20).",
@@ -288,7 +288,7 @@
     "tp2_day": null,
     "tp3_day": null,
     "stop_day": null,
-    "also_reached": "â€”",
+    "also_reached": "—",
     "uw_score": 1
   },
   {
