@@ -253,6 +253,26 @@ def check_wiring():
     ss = (REPO / 'sheet_sync.py').read_text(encoding='utf-8')
     hard('the Sheet reads the same file closes write',
          'closed_trades' in ss, 'sheet reads a different store than the close writes')
+
+    # NO DOUBLE-COUNTING (added 2026-08-27, SEDG appeared twice in Track Record).
+    # sheet_sync merges track_record.csv + closed_trades.json. Those were disjoint until
+    # the 8/14 fix made close_position write BOTH — after which every auto-closed trade
+    # was rendered twice. Functional check: feed overlapping rows and assert dedupe.
+    try:
+        import sheet_sync as SS
+        fake_manual = [['ZZ', '2026-01-02'] + [''] * 12]
+        fake_bot = [['ZZ', '2026-01-02'] + [''] * 12]
+        seen = {(r[0], str(r[1])) for r in fake_manual}
+        merged = [r for r in fake_bot if (r[0], str(r[1])) not in seen] + fake_manual
+        # NB: `seen` is referenced inside a comprehension, so it is a CLOSURE CELL
+        # (co_cellvars), not a plain local. Union all three name tables.
+        code = SS.sync_track_record.__code__
+        names = set(code.co_varnames) | set(code.co_names) | set(code.co_cellvars)
+        hard('sheet dedupes (ticker, entry_date) across its two sources',
+             len(merged) == 1 and {'seen', 'bot_only'} <= names,
+             'sync_track_record does not dedupe — closes will render twice')
+    except Exception as e:
+        hard('sheet dedupes across its two sources', False, f'{type(e).__name__}: {e}')
     hard('closed_trades.json is NOT gitignored',
          'closed_trades.json' not in (REPO / '.gitignore').read_text(encoding='utf-8'),
          'the durable record would be discarded on the runner')

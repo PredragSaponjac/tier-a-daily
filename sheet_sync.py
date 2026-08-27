@@ -190,7 +190,21 @@ def _ensure_tab(sh, title, header):
 def sync_track_record():
     """Replace the unified Track Record tab: bot (UW) + manual (skew) closed trades,
     sorted by entry_date. Also removes the legacy 'Manual Skew Trades' tab if present."""
-    rows = _bot_rows() + _manual_rows()
+    # DEDUPE ON (ticker, entry_date) — added 2026-08-27 after SEDG appeared TWICE.
+    # The two sources stopped being disjoint on 2026-08-14: close_position used to write
+    # ONLY track_record.csv (gitignored, so closes vanished on the runner). The fix made
+    # it ALSO write closed_trades.json — but sheet_sync still treats the two as separate
+    # feeds, so every auto-closed trade landed in the sheet twice, with different column
+    # alignment. closed_trades.json WINS: it carries the day-columns, the setup note and
+    # the edge metrics; the CSV row is the thinner legacy record.
+    _bot = _bot_rows()
+    manual = _manual_rows()
+    seen = {(r[0], str(r[1])) for r in manual}
+    bot_only = [r for r in _bot if (r[0], str(r[1])) not in seen]
+    if len(_bot) != len(bot_only):
+        print(f'[sheet] deduped {len(_bot)-len(bot_only)} row(s) present in BOTH '
+              f'track_record.csv and closed_trades.json')
+    rows = bot_only + manual
     rows.sort(key=lambda r: str(r[1]))   # by entry_date
     if not rows:
         print('[sheet] no closed trades yet (bot or manual), nothing to sync')
