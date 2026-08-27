@@ -1,25 +1,3 @@
 {
-  "positions": [
-    {
-      "ticker": "SEDG",
-      "entry_date": "2026-08-17",
-      "entry_price": 30.79,
-      "T1": 33.869,
-      "T2": 34.1769,
-      "T3": 36.948,
-      "STOP": 28.6347,
-      "MAE_pct": -4.157193150757266,
-      "MAE_date": "2026-08-18",
-      "MFE_pct": 9.418315831698854,
-      "MFE_date": "2026-08-26",
-      "filter_score": null,
-      "z_ncp": null,
-      "coi_pct": null,
-      "poi_pct": null,
-      "dp_blocks_10d": null,
-      "dp_cumul_10d_M": null,
-      "parameters_version": "1.0.0",
-      "added_at": "2026-08-17T20:50:40.250438Z"
-    }
-  ]
+  "positions": []
 }
