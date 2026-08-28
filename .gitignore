@@ -7,3 +7,5 @@ venv/
 uw_cache/
 *.log
 track_record.csv
+skew_history.db
+skew_history.db-journal

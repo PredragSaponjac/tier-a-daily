@@ -65,6 +65,14 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
+      # skew_history.db is a RELEASE ASSET, not a git file — it crossed GitHub's
+      # 100MB limit on 2026-08-25 and every push was silently rejected for 3 days.
+      # HARD-FAILS if the DB is missing/truncated: never scan on an empty database.
+      - name: Fetch database state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash db_state.sh pull
+
       # ===== STEP 1: PM SCAN =====
       - name: Run skew_tracker.py (PM scan)
         run: |
@@ -78,7 +86,8 @@ jobs:
           DATE=$(date -u +%Y-%m-%d)
           git config user.name "tier-a-daily-bot"
           git config user.email "bot@tieradaily.local"
-          git add skew_history.db skew_manual_pm.log 2>/dev/null || true
+          python scan_marker.py PM
+          git add last_scan_pm.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE PM (auto)"
 
       # ===== STEP 2: LABEL FORWARD RETURNS =====
@@ -91,9 +100,8 @@ jobs:
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
-          git add skew_history.db 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE PM (auto)"
-          git push || (git pull --rebase --autostash && git push) || true
+          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - data NOT persisted'; exit 1; }
 
       # ===== STEP 3: SCANNER + FILTER + ALERTS (the bot) =====
       - name: Run Tier A Daily bot (scanner + UW filter + Telegram + X + Sheet)
@@ -143,4 +151,11 @@ jobs:
           git add closed_trades.json 2>/dev/null || true
           git add x_posted.log 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Daily archive $(date -u +%Y-%m-%d)"
-          git push || (git pull --rebase --autostash && git push) || true
+          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - data NOT persisted'; exit 1; }
+
+      # Persist the DB back to the release — the ONLY durable copy now.
+      - name: Store database state
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash db_state.sh push

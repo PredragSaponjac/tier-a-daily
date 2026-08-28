@@ -38,6 +38,14 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
+      # skew_history.db is a RELEASE ASSET, not a git file — it crossed GitHub's
+      # 100MB limit on 2026-08-25 and every push was silently rejected for 3 days.
+      # HARD-FAILS if the DB is missing/truncated: never scan on an empty database.
+      - name: Fetch database state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash db_state.sh pull
+
       - name: Run skew_tracker.py (AM scan)
         run: |
           python skew_tracker.py > skew_manual_am.log 2>&1
@@ -50,7 +58,8 @@ jobs:
           DATE=$(date -u +%Y-%m-%d)
           git config user.name "tier-a-daily-bot"
           git config user.email "bot@tieradaily.local"
-          git add skew_history.db skew_manual_am.log 2>/dev/null || true
+          python scan_marker.py AM
+          git add last_scan_am.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE AM (auto)"
 
       - name: Run label_candidates.py
@@ -62,6 +71,12 @@ jobs:
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
-          git add skew_history.db 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE AM (auto)"
-          git push || (git pull --rebase --autostash && git push) || true
+          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - data NOT persisted'; exit 1; }
+
+      # Persist the DB back to the release — the ONLY durable copy now.
+      - name: Store database state
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash db_state.sh push
