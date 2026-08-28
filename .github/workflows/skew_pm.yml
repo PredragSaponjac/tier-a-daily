@@ -37,9 +37,19 @@ jobs:
           fetch-depth: 100
       - id: check
         run: |
-          TODAY=$(date -u +%Y-%m-%d)
-          if git log --since="$TODAY 00:00" --grep="Skew tracker snapshot $TODAY PM" --oneline | grep -q .; then
-            echo "PM scan already committed for $TODAY — skipping duplicate run."
+          # Guard on the DATA, not on a commit message (changed 2026-08-28).
+          # The old version grepped the git log for "Skew tracker snapshot $TODAY PM".
+          # A manual re-run at 22:09 CDT Thursday is 03:09 UTC FRIDAY, so it wrote a
+          # Friday-dated commit holding Thursday's closes — which would then have made
+          # this guard skip Friday's real scan. last_scan_pm.json records the actual
+          # latest scan_date in the database, so the guard now reflects reality.
+          # US/Eastern, not UTC: the trading day is what matters, and after ~20:00 ET
+          # the UTC date has already rolled into tomorrow.
+          TODAY=$(TZ=America/New_York date +%Y-%m-%d)
+          LAST=$(python -c "import json;print(json.load(open('last_scan_pm.json'))['latest_scan_date'])" 2>/dev/null || echo "none")
+          echo "trading day (ET): $TODAY   last PM scan in db: $LAST"
+          if [ "$LAST" = "$TODAY" ]; then
+            echo "PM scan for $TODAY already in the database — skipping duplicate run."
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "No PM scan yet for $TODAY — proceeding."
