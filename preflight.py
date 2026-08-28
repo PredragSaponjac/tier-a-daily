@@ -91,11 +91,31 @@ def check_gates():
 # ------------------------------------------------------- 2. DATA-QUALITY GUARDS
 def check_data_quality():
     print('\n=== 2. data-quality guards ===')
+    import sqlite3 as _sq
+    import tempfile
     import data_quality as DQ
-    # A date far past the DB's last row must report UNAVAILABLE, never a fake std.
-    r = DQ.assess_noise('AAPL', '2099-01-01')
+
+    # HERMETIC (fixed 2026-08-28): this used to read the real skew_history.db. When the
+    # DB moved out of git to a release asset, CI had no database and the check hard-FAILED
+    # on a missing file — a false alarm reporting broken code when only the environment
+    # had changed. Build a throwaway DB with a KNOWN gap instead, so the check tests
+    # behaviour and runs anywhere.
+    tmp = Path(tempfile.mkdtemp()) / 'probe.db'
+    con = _sq.connect(str(tmp))
+    con.execute('CREATE TABLE skew_daily (ticker TEXT, date TEXT, skew REAL)')
+    # six clean consecutive days, then a query far in the future = a collection gap
+    con.executemany('INSERT INTO skew_daily VALUES (?,?,?)',
+                    [('PROBE', f'2026-01-{d:02d}', -10.0 + d) for d in range(1, 7)])
+    con.commit(); con.close()
+
+    r_gap = DQ.assess_noise('PROBE', '2026-06-01', db_path=str(tmp))
     hard('noise gate refuses to compute across a gap',
-         r['skew_std'] is None and 'UNAVAILABLE' in r['reason'], str(r))
+         r_gap['skew_std'] is None and 'UNAVAILABLE' in r_gap['reason'], str(r_gap))
+
+    r_ok = DQ.assess_noise('PROBE', '2026-01-06', db_path=str(tmp))
+    hard('noise gate DOES compute on contiguous history',
+         r_ok['skew_std'] is not None,
+         f'gap guard is too aggressive — it rejects clean data too: {r_ok}')
 
 
 # ------------------------------------------------------------- 3. FORMATTERS
