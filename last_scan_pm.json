@@ -1,9 +1,9 @@
 {
   "scan": "PM",
-  "utc": "2026-08-28T22:33:10.988478Z",
-  "latest_scan_date": "2026-08-28",
-  "candidate_log_rows": 61051,
-  "skew_daily_rows": 61051,
-  "fixed_strike_vol_rows": 360754,
-  "db_bytes": 106799104
+  "utc": "2026-08-31T20:31:03.062158Z",
+  "latest_scan_date": "2026-08-31",
+  "candidate_log_rows": 61715,
+  "skew_daily_rows": 61715,
+  "fixed_strike_vol_rows": 364680,
+  "db_bytes": 108019712
 }
