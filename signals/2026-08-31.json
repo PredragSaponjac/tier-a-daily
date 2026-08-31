@@ -1,0 +1,276 @@
+{
+  "scan_date": "2026-08-31",
+  "run_at": "2026-08-31T20:35:36.776863Z",
+  "parameters_version": "1.0.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "LCID",
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "ENPH",
+      "spot_close": 36.42,
+      "spot_return_pct": -10.03,
+      "skew_change_5d": -10.25,
+      "near_skew": -11.52,
+      "near_dte": 4,
+      "put_wall_strike": 35.0,
+      "put_wall_oi_change": -8209,
+      "sector": "Technology",
+      "industry": "Solar",
+      "dte_earnings": 57,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-27",
+        "liquidity_oi": 92752
+      },
+      "edge": {
+        "sector_iv_rank": 55.6,
+        "skew_slope": 0.06,
+        "iv_hv_ratio": 1.08,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 4.82,
+        "stop_atr": 1.45,
+        "tight_stop": false,
+        "atr2x_stop_pct": 9.6
+      }
+    },
+    {
+      "ticker": "ENVX",
+      "spot_close": 3.38,
+      "spot_return_pct": -23.01,
+      "skew_change_5d": -21.87,
+      "near_skew": -14.06,
+      "near_dte": 4,
+      "put_wall_strike": 3.5,
+      "put_wall_oi_change": -3221,
+      "sector": "Industrials",
+      "industry": "Electrical Equipment & Parts",
+      "dte_earnings": 57,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-27",
+        "liquidity_oi": 37915
+      },
+      "edge": {
+        "sector_iv_rank": 58.3,
+        "skew_slope": 0.1,
+        "iv_hv_ratio": 0.56,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 9.76,
+        "stop_atr": 0.72,
+        "tight_stop": true,
+        "atr2x_stop_pct": 19.5
+      }
+    },
+    {
+      "ticker": "LCID",
+      "spot_close": 4.85,
+      "spot_return_pct": -22.03,
+      "skew_change_5d": -20.31,
+      "near_skew": -12.5,
+      "near_dte": 4,
+      "put_wall_strike": 3.5,
+      "put_wall_oi_change": -21367,
+      "sector": "Consumer Cyclical",
+      "industry": "Auto Manufacturers",
+      "dte_earnings": 65,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-04",
+        "liquidity_oi": 164385
+      },
+      "edge": {
+        "sector_iv_rank": 77.3,
+        "skew_slope": -3.98,
+        "iv_hv_ratio": 0.7,
+        "combo_pass": true,
+        "ivr_pass": false,
+        "atr_pct": 8.42,
+        "stop_atr": 0.83,
+        "tight_stop": true,
+        "atr2x_stop_pct": 16.8
+      }
+    },
+    {
+      "ticker": "NN",
+      "spot_close": 15.87,
+      "spot_return_pct": -20.25,
+      "skew_change_5d": -33.69,
+      "near_skew": -13.87,
+      "near_dte": 4,
+      "put_wall_strike": 16.5,
+      "put_wall_oi_change": -1496,
+      "sector": "Technology",
+      "industry": "Software - Infrastructure",
+      "dte_earnings": 66,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 196219
+      },
+      "edge": {
+        "sector_iv_rank": 97.0,
+        "skew_slope": -4.14,
+        "iv_hv_ratio": 1.62,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 7.67,
+        "stop_atr": 0.91,
+        "tight_stop": true,
+        "atr2x_stop_pct": 15.3
+      }
+    },
+    {
+      "ticker": "PCG",
+      "spot_close": 13.27,
+      "spot_return_pct": -25.62,
+      "skew_change_5d": -7.42,
+      "near_skew": -11.72,
+      "near_dte": 4,
+      "put_wall_strike": 15.5,
+      "put_wall_oi_change": -44743,
+      "sector": "Utilities",
+      "industry": "Utilities - Regulated Electric",
+      "dte_earnings": 52,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-22",
+        "liquidity_oi": 1421740
+      },
+      "edge": {
+        "sector_iv_rank": 88.9,
+        "skew_slope": 0.33,
+        "iv_hv_ratio": 0.46,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 6.68,
+        "stop_atr": 1.05,
+        "tight_stop": false,
+        "atr2x_stop_pct": 13.4
+      }
+    },
+    {
+      "ticker": "PL",
+      "spot_close": 19.85,
+      "spot_return_pct": -19.6,
+      "skew_change_5d": -12.3,
+      "near_skew": -22.07,
+      "near_dte": 4,
+      "put_wall_strike": 17.0,
+      "put_wall_oi_change": -664,
+      "sector": "Industrials",
+      "industry": "Aerospace & Defense",
+      "dte_earnings": 3,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": false,
+      "veto_reasons": [
+        "EARNINGS RISK: reports in 3d (2026-09-03)"
+      ],
+      "veto_details": {
+        "earnings_next": "2026-09-03",
+        "liquidity_oi": 58499
+      },
+      "edge": {
+        "sector_iv_rank": 96.7,
+        "skew_slope": -2.04,
+        "iv_hv_ratio": 2.15,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 5.35,
+        "stop_atr": 1.31,
+        "tight_stop": false,
+        "atr2x_stop_pct": 10.7
+      }
+    },
+    {
+      "ticker": "UAL",
+      "spot_close": 107.99,
+      "spot_return_pct": -13.84,
+      "skew_change_5d": -19.6,
+      "near_skew": -8.98,
+      "near_dte": 4,
+      "put_wall_strike": 125.0,
+      "put_wall_oi_change": -2915,
+      "sector": "Industrials",
+      "industry": "Airlines",
+      "dte_earnings": 51,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-21",
+        "liquidity_oi": 87432
+      },
+      "edge": {
+        "sector_iv_rank": 45.0,
+        "skew_slope": 0.67,
+        "iv_hv_ratio": 1.44,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 3.4,
+        "stop_atr": 2.06,
+        "tight_stop": false,
+        "atr2x_stop_pct": 6.8
+      }
+    },
+    {
+      "ticker": "UMAC",
+      "spot_close": 23.67,
+      "spot_return_pct": -30.5,
+      "skew_change_5d": -14.75,
+      "near_skew": -13.87,
+      "near_dte": 4,
+      "put_wall_strike": 28.0,
+      "put_wall_oi_change": -1552,
+      "sector": "Technology",
+      "industry": "Computer Hardware",
+      "dte_earnings": 66,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 31567
+      },
+      "edge": {
+        "sector_iv_rank": 95.5,
+        "skew_slope": -0.95,
+        "iv_hv_ratio": 1.02,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 13.38,
+        "stop_atr": 0.52,
+        "tight_stop": true,
+        "atr2x_stop_pct": 26.8
+      }
+    }
+  ]
+}

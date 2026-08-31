@@ -1,3 +1,25 @@
 {
-  "positions": []
+  "positions": [
+    {
+      "ticker": "LCID",
+      "entry_date": "2026-08-31",
+      "entry_price": 4.85,
+      "T1": 5.335,
+      "T2": 5.3835,
+      "T3": 5.819999999999999,
+      "STOP": 4.5104999999999995,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": null,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-08-31T20:35:36.776529Z"
+    }
+  ]
 }
