@@ -20,6 +20,27 @@
       "dp_cumul_10d_M": null,
       "parameters_version": "1.0.0",
       "added_at": "2026-08-31T20:35:36.776529Z"
+    },
+    {
+      "ticker": "FLY",
+      "entry_date": "2026-09-01",
+      "entry_price": 20.67,
+      "T1": 22.737000000000005,
+      "T2": 22.943700000000003,
+      "T3": 24.804000000000002,
+      "STOP": 19.2231,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": null,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "1.0.0",
+      "added_at": "2026-09-01T20:42:14.195328Z"
     }
   ]
 }
