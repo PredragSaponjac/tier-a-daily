@@ -1,0 +1,64 @@
+name: Weekly self-audit - score registered hypotheses, never implement
+
+# WHY (2026-09-02): the user asked for a system that "rechecks itself and suggests
+# improvements without overfitting". This is the honest version: every idea lives in
+# hypotheses.json with the date it was written; each is scored ONLY on signals that
+# arrived after that date; the significance bar is divided by the number of ideas under
+# test; both halves of the period must agree. It reports READY / ACCUMULATING / NULL to
+# Telegram. It changes nothing. A human decides.
+#
+# Also labels the stop-aware PATH of every Tier A qualifier (not just the one we traded)
+# so "what did the names we skipped do?" and "which start working fastest?" are
+# answerable from data rather than memory.
+
+on:
+  schedule:
+    - cron: '30 22 * * 5'     # Friday 22:30 UTC, after the PM scan and the heartbeat
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Fetch database state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash db_state.sh pull
+
+      - name: Label the path of every Tier A qualifier
+        env:
+          SKEW_DB_PATH: ./skew_history.db
+        run: python path_labels.py
+
+      - name: Score the hypothesis registry and report
+        env:
+          SKEW_DB_PATH: ./skew_history.db
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python self_audit.py --send --json
+
+      - name: Commit the audit record
+        run: |
+          git config user.name "tier-a-daily-bot"
+          git config user.email "bot@tieradaily.local"
+          git add audit_latest.json 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Weekly self-audit $(date -u +%Y-%m-%d)"
+          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry'; exit 1; }
+
+      # The path-label table lives inside the DB, so the DB must go back to the release.
+      - name: Store database state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash db_state.sh push

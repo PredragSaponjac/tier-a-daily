@@ -351,10 +351,80 @@ def check_network():
         soft('scanner_reader reads the DB', False, f'{type(e).__name__}: {e}')
 
 
+def check_self_audit():
+    """The hypothesis registry + self-audit (added 2026-09-02) must be well-formed and
+    must actually run. A registry entry without a registration date, or with a mutable
+    threshold, silently defeats the whole anti-overfitting design."""
+    print('\n=== 7. self-audit registry + scorer ===')
+    import json as _json
+    import tempfile
+    import sqlite3 as _sq
+    from pathlib import Path as _P
+    import datetime as _dt
+    reg = _json.load(open(REPO / 'hypotheses.json', encoding='utf-8'))
+    active = [h for h in reg.get('hypotheses', []) if h.get('status') == 'active']
+    ids = [h.get('id') for h in active]
+    hard('registry has active hypotheses', len(active) > 0, 'empty registry')
+    hard('registry ids are unique', len(ids) == len(set(ids)), f'duplicates: {set(i for i in ids if ids.count(i) > 1)}')
+    today = _dt.date.today().isoformat()
+    bad = []
+    for h in active:
+        ok = (isinstance(h.get('registered'), str) and len(h['registered']) == 10
+              and h['registered'] <= today
+              and h.get('type') in ('entry_filter', 'post_entry', 'exit_shadow', 'portfolio', 'speed'))
+        if h.get('type') in ('entry_filter', 'post_entry'):
+            ok = ok and all(k in h for k in ('feature', 'op', 'threshold'))
+        if h.get('type') == 'exit_shadow':
+            ok = ok and all(k in h for k in ('feature', 'baseline'))
+        if not ok:
+            bad.append(h.get('id'))
+    hard('every active hypothesis has a past registration date, known type, frozen threshold',
+         not bad, f'malformed: {bad}')
+
+    # FUNCTIONAL: score the real registry against a synthetic DB — must return one
+    # verdict per active idea and never an ERROR verdict.
+    try:
+        import self_audit as SA
+        tmp = _P(tempfile.mkdtemp())
+        con = _sq.connect(str(tmp / 'probe.db'))
+        con.execute("""CREATE TABLE tier_a_paths (ticker TEXT, scan_date TEXT, tradeable INTEGER,
+            n_legs INTEGER, entry REAL, first_green_day INTEGER, days_to_t1 INTEGER, days_to_stop INTEGER,
+            mae_pct REAL, mfe_pct REAL, outcome TEXT, pnl_pct REAL, r_live REAL, r_stop5 REAL, r_stop6 REAL,
+            r_t12 REAL, bars_seen INTEGER, complete INTEGER, labeled_at TEXT, PRIMARY KEY (ticker, scan_date))""")
+        con.execute("""CREATE TABLE candidate_log (ticker TEXT, scan_date TEXT, sector TEXT, spot_close REAL,
+            spot_return_pct REAL, put_wall_strike REAL, atm_iv REAL, hv_10d REAL, iv_hv_ratio REAL, skew REAL,
+            skew_change_5d REAL, near_skew REAL, near_dte INTEGER, sector_iv_rank REAL)""")
+        for i in range(24):
+            d = f'2026-08-{(i % 20) + 1:02d}'
+            win = i % 3 != 0
+            con.execute('INSERT INTO tier_a_paths VALUES (?,?,1,1,100,?,?,?,-3,8,?,?,?,?,?,?,20,1,?)',
+                        (f'T{i}', d, 1 if win else None, 4 if win else None, None if win else 3,
+                         'T1' if win else 'STOP', 10 if win else -7, (10 / 7) if win else -1,
+                         2 if win else -1, (10 / 6) if win else -1, (12 / 7) if win else -1, today))
+            con.execute('INSERT INTO candidate_log VALUES (?,?,?,100,-15,85,80,70,1.2,-12,-9,-8,4,?)',
+                        (f'T{i}', d, 'Tech', 70 if win else 40))
+        con.commit()
+        keep = SA.DB
+        try:
+            SA.DB = str(tmp / 'probe.db')
+            res, p_bar, n_tests = SA.score_registry(con, reg, archives_dir=str(tmp))
+        finally:
+            SA.DB = keep
+        verdicts = {r.get('verdict') for r in res}
+        hard('self_audit scores every active idea (functional)', len(res) == len(active),
+             f'{len(res)} results for {len(active)} ideas')
+        hard('self_audit produced no ERROR verdicts', 'ERROR' not in verdicts,
+             str([r for r in res if r.get('verdict') == 'ERROR'])[:300])
+        hard('self_audit corrected bar shrinks with idea count', abs(p_bar - 0.05 / n_tests) < 1e-12,
+             f'p_bar {p_bar} vs 0.05/{n_tests}')
+    except Exception as e:
+        hard('self_audit functional check', False, f'{type(e).__name__}: {e}')
+
+
 def main():
     print('PREFLIGHT — tier-a-daily')
     for fn in (check_gates, check_data_quality, check_formatters,
-               check_wiring, check_silent_failures, check_network):
+               check_wiring, check_silent_failures, check_self_audit, check_network):
         try:
             fn()
         except Exception as e:
