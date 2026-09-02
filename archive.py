@@ -19,14 +19,21 @@ ARCHIVE_DIR.mkdir(exist_ok=True)
 
 def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str | None,
                        min_score_used: int, parameters_version: str,
-                       notes: str = '') -> Path:
-    """Write a complete record of today's run to signals/YYYY-MM-DD.json."""
+                       notes: str = '', taken_tickers: list | None = None) -> Path:
+    """Write a complete record of today's run to signals/YYYY-MM-DD.json.
+
+    picked_ticker  = the top-ranked name (kept for the self-audit's picked-vs-skipped
+                     ledger, which needs to know what the OLD one-per-day rule would do).
+    taken_tickers  = every name actually tracked as a position (TAKE-ALL regime from
+                     2026-09-02). Under the old regime this is just [picked_ticker].
+    """
     record = {
         'scan_date': scan_date,
         'run_at': datetime.utcnow().isoformat() + 'Z',
         'parameters_version': parameters_version,
         'min_filter_score_used': min_score_used,
         'picked_ticker': picked_ticker,
+        'taken_tickers': list(taken_tickers) if taken_tickers else ([picked_ticker] if picked_ticker else []),
         'notes': notes,
         'candidates': [],
     }

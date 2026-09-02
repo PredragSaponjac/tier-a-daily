@@ -31,6 +31,23 @@ import sheet_sync
 import x_post
 
 
+def select_taken(tradeable, top, open_tickers, sel, rank_key):
+    """TAKE-ALL selection (parameters 1.1.0, user decision 2026-09-02). Pure, so preflight
+    can test it.
+
+    Returns (taken, skipped_for_cap). With take_all_qualified ON: every gate-passing name
+    in rank order, excluding tickers already open, until open + new reaches
+    max_concurrent (floor 1 so today's top always goes). OFF: [top] — the old rule.
+    Rank order has no measured skill; it is used only to decide who yields to the cap.
+    """
+    if not sel.get('take_all_qualified'):
+        return [top], []
+    ranked = [c for c in sorted(tradeable, key=rank_key, reverse=True)
+              if c['ticker'] not in open_tickers]
+    room = max(1, int(sel.get('max_concurrent', 6)) - len(open_tickers))
+    return ranked[:room], [c['ticker'] for c in ranked[room:]]
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--scan-date', default=None, help='YYYY-MM-DD (default: latest)')
@@ -179,7 +196,21 @@ def main():
 
     # Day pool for runner-up context
     day_pool = [c for c in survivors if c['ticker'] != top['ticker']]
-    msg = format_signal(top, day_pool) + watch_block
+
+    # TAKE-ALL regime (parameters 1.1.0, user decision 2026-09-02). Four independent tests
+    # showed the one-per-day pick has NO skill and the names we skipped carried the return
+    # (clean universe: PICKED R +0.023 vs SKIPPED +0.518). So every gate-passing name is
+    # tracked, in rank order, until open + new reaches max_concurrent. `top` stays the
+    # featured name for the alert/X post and the archive's picked_ticker (the self-audit's
+    # picked-vs-skipped ledger still needs to know what the OLD rule would have done).
+    # A ticker already open is never doubled up. Gates, exits, thresholds: unchanged.
+    open_tks = {p['ticker'] for p in PT.list_open()}
+    taken, skipped_for_cap = select_taken(tradeable, top, open_tks, sel, _rank_key)
+    if sel.get('take_all_qualified'):
+        print(f"TAKE-ALL: {len(tradeable)} tradeable, {len(open_tks)} already open, "
+              f"cap {sel.get('max_concurrent', 6)} -> tracking {[c['ticker'] for c in taken]}"
+              + (f"  (cap skipped {skipped_for_cap})" if skipped_for_cap else ''))
+    msg = format_signal(top, day_pool, taken=taken) + watch_block
     print(f"\n--- ALERT ---\n{msg}\n")
 
     if args.dry_run:
@@ -188,23 +219,29 @@ def main():
         ok = send_telegram(msg)
         print(f"Telegram send: {'OK' if ok else 'FAILED'}")
         if ok:
-            # Compute T1/T2/T3/STOP from entry + parameters
-            entry = top['spot_close']
+            # Compute T1/T2/T3/STOP from entry + parameters, for EVERY tracked name
             tps = P.tp_pcts()
-            T1 = entry * (1 + tps['tp1']/100)
-            T2 = entry * (1 + tps['tp2']/100)
-            T3 = entry * (1 + tps['tp3']/100)
-            STOP = entry * (1 + P.stop_pct()/100)
-            added = PT.add_position(top, T1=T1, T2=T2, T3=T3, STOP=STOP, params_version=P.version())
-            print(f"Position tracker: {'added' if added else 'already tracking (idempotent skip)'}")
-            # Archive the full daily record (all candidates + picked)
-            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version())
+            n_added = 0
+            for t in taken:
+                entry = t['spot_close']
+                T1 = entry * (1 + tps['tp1']/100)
+                T2 = entry * (1 + tps['tp2']/100)
+                T3 = entry * (1 + tps['tp3']/100)
+                STOP = entry * (1 + P.stop_pct()/100)
+                added = PT.add_position(t, T1=T1, T2=T2, T3=T3, STOP=STOP, params_version=P.version())
+                n_added += int(bool(added))
+                print(f"Position tracker: {t['ticker']} {'added' if added else 'already tracking (idempotent skip)'}")
+            print(f"Position tracker: {n_added} new position(s) from {len(taken)} tracked name(s)")
+            # Archive the full daily record (all candidates + picked + every name taken)
+            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version(),
+                                      taken_tickers=[t['ticker'] for t in taken])
             # X auto-posting is GATED OFF by default. A bad/unstable pick must NEVER
             # auto-publish to a public account again (see the 2026-06-12 RUM incident:
             # a micro-cap whose skew flipped bearish intraday was auto-posted before
             # anyone could look). The bot now PREPARES the post and saves it as a draft
             # for manual review; it only auto-posts if ENABLE_X_AUTOPOST is explicitly set.
-            x_msg = x_post.format_signal_for_x(top, [c for c in survivors if c['ticker'] != top['ticker']])
+            x_msg = x_post.format_signal_for_x(top, [c for c in survivors if c['ticker'] != top['ticker']],
+                                               taken=taken)
             if os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() in ('1', 'true', 'yes'):
                 x_ok = x_post.post_to_x(x_msg)
                 if x_ok: print('X post: OK')

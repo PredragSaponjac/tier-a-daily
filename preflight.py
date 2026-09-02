@@ -178,6 +178,18 @@ def check_formatters():
     except Exception as e:
         hard('X signal constraints', False, f'{type(e).__name__}: {e}')
 
+    # TAKE-ALL (2026-09-02): the X post lists every other tracked name PLAIN. It must
+    # still carry exactly ONE cashtag — X rejects a second with 403 — and stay under 4000.
+    try:
+        c2, c3 = dict(c), dict(c); c2['ticker'] = 'TWOX'; c3['ticker'] = 'THRX'
+        sig2 = x_post.format_signal_for_x(c, [], taken=[c, c2, c3])
+        tags = set(re.findall(r'\$[A-Z]{1,5}\b', sig2))
+        hard('X take-all signal names the others but keeps ONE cashtag',
+             tags == {'$TEST'} and 'TWOX' in sig2 and 'THRX' in sig2, f'tags {sorted(tags)}')
+        hard('X take-all signal under 4000 chars', weighted(sig2) < 4000, f'{weighted(sig2)} chars')
+    except Exception as e:
+        hard('X take-all signal', False, f'{type(e).__name__}: {e}')
+
     try:
         cl = x_post.format_close_for_x('TEST', 100.0, 93.0, 'STOP')
         tags = set(re.findall(r'\$[A-Z]{1,5}\b', cl))
@@ -421,10 +433,44 @@ def check_self_audit():
         hard('self_audit functional check', False, f'{type(e).__name__}: {e}')
 
 
+def check_take_all():
+    """TAKE-ALL selection (parameters 1.1.0, 2026-09-02) — tests main.select_taken, the
+    pure function the live path calls. Cap, no-double-up, and the OFF switch must all hold;
+    a wrong cap would open 7 positions on a busy day, a missing OFF switch would leave no
+    way back to the old rule."""
+    print('\n=== 8. take-all selection ===')
+    import parameters as P
+    import main as M
+    sel = P.selection_params()
+    hard('parameters expose take_all_qualified + max_concurrent',
+         'take_all_qualified' in sel and 'max_concurrent' in sel, str(sel))
+    mk = lambda t, legs, vc: {'ticker': t, 'filter': {'score': 0},
+                              'legs': {'strong_skew': legs >= 1, 'strong_cushion': legs >= 2, 'vol_cushion': vc}}
+    rk = lambda c: (False, int(c['legs']['strong_skew']) + int(c['legs']['strong_cushion']),
+                    c['legs']['vol_cushion'] or -999, 0)
+    A, B, C = mk('A', 2, 9.0), mk('B', 1, 4.0), mk('C', 1, 2.5)
+    on = {'take_all_qualified': True, 'max_concurrent': 6}
+    taken, skip = M.select_taken([C, A, B], A, set(), on, rk)
+    hard('take-all tracks every tradeable name under the cap, rank order',
+         [c['ticker'] for c in taken] == ['A', 'B', 'C'] and not skip, str([c['ticker'] for c in taken]))
+    taken, skip = M.select_taken([A, B, C], A, {'V', 'W', 'X', 'Y', 'Z'}, on, rk)
+    hard('cap leaves room for max_concurrent - open (floor 1) and reports the rest',
+         [c['ticker'] for c in taken] == ['A'] and skip == ['B', 'C'],
+         f'{[c["ticker"] for c in taken]} skipped {skip}')
+    taken, _ = M.select_taken([A, B, C], A, {'B'}, on, rk)
+    hard('a ticker already open is never doubled up',
+         'B' not in [c['ticker'] for c in taken], str([c['ticker'] for c in taken]))
+    off = {'take_all_qualified': False, 'max_concurrent': 6}
+    taken, _ = M.select_taken([A, B, C], B, set(), off, rk)
+    hard('take_all_qualified=false reverts to top-only (the way back)',
+         [c['ticker'] for c in taken] == ['B'], str([c['ticker'] for c in taken]))
+
+
 def main():
     print('PREFLIGHT — tier-a-daily')
     for fn in (check_gates, check_data_quality, check_formatters,
-               check_wiring, check_silent_failures, check_self_audit, check_network):
+               check_wiring, check_silent_failures, check_self_audit, check_take_all,
+               check_network):
         try:
             fn()
         except Exception as e:

@@ -303,6 +303,63 @@ def sync_open_positions():
     return True
 
 
+CAND_HEADER = ['ticker', 'scan_date', 'tracked', 'entry', 'ret_5d%', 'skew', 'cushion%', 'vol_cushion',
+               'legs', 'atm_iv', 'sector_iv_rank', 'iv_hv', 'ticker_vix', 'washouts',
+               'first_green_day', 'days_to_T1', 'days_to_stop', 'MAE%', 'MFE%', 'outcome', 'R']
+
+
+def sync_candidates():
+    """Replace the Candidates tab: EVERY name that passed the gates, every day, with its
+    entry metrics and its stop-aware path — tracked or not.
+
+    WHY (user, 2026-09-02): "present them all, not just one, and print them in the sheet
+    — more trades, more probabilities, more learning." This is the learning view: the
+    sheet mirror of tier_a_paths + candidate_log. Outcomes fill in as paths resolve.
+    """
+    import sqlite3 as _sq
+    import json as _json
+    import glob as _glob
+    from scanner_reader import SKEW_DB
+    con = _sq.connect(str(SKEW_DB))
+    try:
+        has = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tier_a_paths'").fetchone()
+        if not has:
+            print('[sheet] Candidates: tier_a_paths not present yet, skipping')
+            return False
+        rows = con.execute("""
+            SELECT p.ticker, p.scan_date, p.entry, c.spot_return_pct, c.skew,
+                   (p.entry / c.put_wall_strike - 1) * 100,
+                   ((p.entry / c.put_wall_strike - 1) * 100) / (c.atm_iv / 15.874507866),
+                   p.n_legs, c.atm_iv, NULLIF(c.sector_iv_rank, 0.0), c.iv_hv_ratio, c.ticker_vix,
+                   (SELECT COUNT(*) FROM candidate_log w WHERE w.scan_date = p.scan_date AND w.spot_return_pct <= -8),
+                   p.first_green_day, p.days_to_t1, p.days_to_stop, p.mae_pct, p.mfe_pct, p.outcome, p.r_live
+              FROM tier_a_paths p LEFT JOIN candidate_log c
+                ON c.ticker = p.ticker AND c.scan_date = p.scan_date
+             ORDER BY p.scan_date DESC, p.n_legs DESC""").fetchall()
+    finally:
+        con.close()
+    # which names were actually tracked as positions (from the daily archives)
+    tracked = set()
+    for f in _glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'signals', '*.json')):
+        try:
+            a = _json.load(open(f, encoding='utf-8'))
+            for t in (a.get('taken_tickers') or ([a['picked_ticker']] if a.get('picked_ticker') else [])):
+                tracked.add((t, a['scan_date']))
+        except Exception:
+            pass
+    out = []
+    for r in rows:
+        r = list(r)
+        out.append([r[0], r[1], 'Y' if (r[0], r[1]) in tracked else ''] + r[2:])
+    out = _round_rows(out)
+    sh = _open_sheet()
+    ws = _ensure_tab(sh, 'Candidates', CAND_HEADER)
+    ws.clear()
+    ws.update(values=[CAND_HEADER] + out, range_name='A1')
+    print(f'[sheet] Candidates synced: {len(out)} qualified names ({len(tracked)} tracked)')
+    return True
+
+
 def sync_all():
     if not os.environ.get('GOOGLE_SHEET_ID') or not os.environ.get('GOOGLE_SHEETS_CREDS_BASE64'):
         print('[sheet] Google Sheet not configured (env vars missing), skipping')
@@ -310,6 +367,10 @@ def sync_all():
     try:
         sync_track_record()
         sync_open_positions()
+        try:
+            sync_candidates()          # learning view; never blocks the two tabs above
+        except Exception as e:
+            print(f'[sheet] Candidates sync skipped: {e}')
         return True
     except Exception as e:
         print(f'[sheet] sync failed: {e}')

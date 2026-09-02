@@ -63,10 +63,14 @@ def post_to_x(text: str) -> bool:
         return False
 
 
-def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
+def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None = None) -> str:
     """X-specific signal format. Slightly tighter than Telegram.
 
     X cashtag rule: only ONE $TICKER in post (X rejects 2+ cashtags as 403).
+    `taken` (TAKE-ALL regime, 2026-09-02) = every other name tracked today; they are
+    listed PLAIN (no $) so the post keeps exactly one cashtag. Every tracked entry is
+    therefore public in the same post its close will later reference — the
+    entry/close symmetry rule holds without one post per name.
     """
     f = c['filter']
     r = f['raw']
@@ -130,6 +134,20 @@ def format_signal_for_x(c: dict, day_pool: list[dict]) -> str:
     parts.append("⏱️ Short-term pullback — exits on target (win) or stop (loss), no time limit.")
     parts.append("Bot auto-closes at T1 or stop.")
     parts.append("")
+    # TAKE-ALL regime (2026-09-02): every gate-passing name is tracked, not just this one.
+    # Named PLAIN (no $) — X rejects a second cashtag with 403. Each will get its own
+    # $-tagged close post when it resolves, so entry and close stay symmetric.
+    others = [t for t in (taken or []) if t.get('ticker') != c['ticker']]
+    if others:
+        parts.append(f"📋 Also tracked today, same rules, equal weight ({len(others)}):")
+        for t in others:
+            e = t.get('spot_close') or 0
+            parts.append(f"  {t['ticker']}  entry {e:.2f}  T1 {e*(1+tps['tp1']/100):.2f}  stop {e*(1+P.stop_pct()/100):.2f}")
+        cap = int(P.selection_params().get('max_concurrent', 6))
+        parts.append("Why all of them: four separate tests showed our one-per-day pick had no skill —")
+        parts.append(f"the names we skipped carried the return. Size every position at 1/{cap} of the book "
+                     f"({cap} = the concurrent cap, not today's count): same risk spread across names, not more risk.")
+        parts.append("")
     # EDGE-VALIDATION block, published from 2026-08-10. Research only — it does NOT
     # affect selection. Posting it publicly turns every signal into a PRE-REGISTERED
     # prediction with a public timestamp: if the hypothesis holds we can point at

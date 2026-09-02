@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
-  "last_updated": "2026-05-27",
-  "regime_note": "Initial launch parameters from research_uw_picker_v1. Pre-self-review baseline.",
+  "version": "1.1.0",
+  "last_updated": "2026-09-02",
+  "regime_note": "TAKE-ALL regime from 2026-09-02: every candidate that passes the gates is tracked as a position (up to max_concurrent), not only the top-ranked one. Rank order is kept solely for the cap and the archive. Gates, exits and thresholds are UNCHANGED from 1.0.0.",
   "entry": {
     "min_filter_score": 3,
     "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate — best tradeable candidate fires even at UW<3."
@@ -11,6 +11,9 @@
     "strong_skew_max": -7.0,
     "strong_vol_cushion_min": 3.0,
     "skew_noise_std_max": 20.0,
+    "take_all_qualified": true,
+    "max_concurrent": 6,
+    "take_all_comment": "2026-09-02 (user decision). Four independent tests showed the one-per-day pick has NO skill and the skipped names carried the return (clean universe: PICKED R +0.023 vs SKIPPED +0.518; take-all Sharpe-ish ~16x). So every candidate that passes the gates is tracked, in rank order, until open+new reaches max_concurrent (=6 covers 94% of days; median 2 open). SIZE EACH AT 1/max_concurrent OF THE BOOK — this spreads the same risk, it does not multiply it. Set take_all_qualified=false to revert to top-only.",
     "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust — NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
     "comment": "THE GATE (earned by SYM+RGTI losses, both weak-on-both). TRADEABLE only if >=1 strong leg: structural skew <= strong_skew_max (deep capitulation) OR vol-adjusted cushion >= strong_vol_cushion_min (cushion% / (ATM_IV/sqrt252) daily-moves). Weak on BOTH = NO TRADE even if it cleared the mechanical Tier A screen. Among tradeable: UW>=3 priority, else best by leg strength. Validated 7/8 vs history (only AR — weakest win, corrupt put-wall data — would've been skipped)."
   },
@@ -52,6 +55,11 @@
       "date": "2026-06-01",
       "change": "min_filter_score 1 -> 3 (exceptional-only)",
       "rationale": "1 was a test/loose setting left in by mistake; it alerted INTU on only 1/4 UW conditions (flow contradicting the thesis) and broadcast it to X with the full Bonferroni claim. 3 requires >=3 of 4 UW conditions to confirm, matching the research edge. Only exceptional, flow-confirmed setups now fire."
+    },
+    {
+      "date": "2026-09-02",
+      "change": "take_all_qualified true, max_concurrent 6 (version 1.1.0)",
+      "rationale": "The one-per-day pick has no measured skill (tiebreaker spearman +0.035; skipped > picked on 8/17 and again on 9/02 clean: PICKED R +0.023 vs SKIPPED +0.518, p=0.908; no entry metric separates winners from losers on 14 live or 43 historical). The edge is the screen, not the choosing, so discarding ~60% of qualified names was throwing away return. Take-all at equal weight raised Sharpe-ish ~16x with LOWER volatility. Gates, exits, thresholds unchanged. Cap 6 covers 94% of days (median 2 open). Position size = 1/6 of book. Also triples the learning sample."
     }
   ]
 }

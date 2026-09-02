@@ -47,7 +47,7 @@ DISCLAIMER = (
 )
 
 
-def format_signal(c: dict, day_pool: list[dict]) -> str:
+def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None) -> str:
     """Format a Telegram signal post."""
     f = c['filter']
     r = f['raw']
@@ -169,7 +169,22 @@ def format_signal(c: dict, day_pool: list[dict]) -> str:
             lines.append(f"   stop width: −7% = {e['stop_atr']}x ATR (ATR {e['atr_pct']}%)"
                          f" | a 2×ATR stop would be −{e['atr2x_stop_pct']}%{warn}")
     lines.append("")
-    if day_pool and len(day_pool) > 1:
+    # TAKE-ALL regime (2026-09-02): every gate-passing name is tracked, not only this one.
+    # The old "runner-up" line is replaced by the full list with each name's levels.
+    others = [t for t in (taken or []) if t.get('ticker') != c['ticker']]
+    if others:
+        lines.append(f"📋 ALSO TRACKED TODAY — same rules, equal weight ({len(others)} more):")
+        for t in others:
+            e = t.get('spot_close') or 0
+            Lt = t.get('legs', {}) or {}
+            lines.append(f"   ${t['ticker']}  entry ${e:.2f} → T1 ${e*(1+tps['tp1']/100):.2f} / STOP ${e*(1+stop_p/100):.2f}"
+                         f"   skew {t.get('skew', 0):+.1f}  cushion {Lt.get('vol_cushion') or 0:.1f}x  legs {int(Lt.get('strong_skew', 0)) + int(Lt.get('strong_cushion', 0))}")
+        cap = int(P.selection_params().get('max_concurrent', 6))
+        lines.append(f"   Size EVERY position at 1/{cap} of the book ({cap} = the concurrent cap, not today's count) —")
+        lines.append("   that spreads the same risk across names; it does not add risk. Four separate tests showed our")
+        lines.append("   one-per-day pick had no skill and the names we skipped carried the return — so we track them all.")
+        lines.append("")
+    elif day_pool and len(day_pool) > 1 and not taken:
         runner_up = next((x for x in day_pool if x['ticker'] != c['ticker']), None)
         if runner_up:
             ru_f = runner_up['filter']

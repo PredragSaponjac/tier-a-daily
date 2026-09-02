@@ -39,6 +39,11 @@ def selection_params() -> dict:
         'strong_skew_max': s.get('strong_skew_max', -7.0),
         'strong_vol_cushion_min': s.get('strong_vol_cushion_min', 3.0),
         'skew_noise_std_max': s.get('skew_noise_std_max', 20.0),
+        # TAKE-ALL regime (2026-09-02): track every gate-passing candidate, not only the
+        # top-ranked one, until open+new reaches max_concurrent. Default False so an old
+        # parameters.json behaves exactly as before.
+        'take_all_qualified': bool(s.get('take_all_qualified', False)),
+        'max_concurrent': int(s.get('max_concurrent', 6)),
     }
 
 
