@@ -8,6 +8,13 @@ Best unrealised reached: +0.0%
 
 Stop is hard at -7%. Taken without hesitation — the losses we publish are the reason the wins mean anything.
 
+⚠️ Near miss, on the record:
+Stop was $4.5105. Today's low was $4.50 — on the 09:30 ET opening bar, 1.1 cents under the stop. It then reversed to $4.81 and had recovered to ~$4.78 by early afternoon ET (≈ +6% off that low, ≈ -1.5% vs our entry). Yesterday's low was $4.53, 2 cents above the stop. The stock grazed the stop twice and got wicked on the second.
+That does not change the result. -7% is booked. A hard stop on a name with an ~8% daily range will sometimes be hit by noise rather than by the thesis failing — that is the cost of the rule, and we pay it in public.
+
+💡 One-off note for readers, on this name only:
+If you follow the THESIS here rather than the exact stock trade, a defined-risk structure avoids the wick problem entirely — e.g. a bull call debit spread, paying no more than ~55% of the strike width (a $1-wide spread for ≤ $0.55). Max loss is the debit paid; there is no stop to get clipped by a 1-cent opening print. Our published rule does NOT change and this is not a recommendation — it is simply how a defined-risk trader would have expressed the same idea.
+
 📊 Live record (since 4/20): AR ✅ +7% | CRSP ✅ +11% | SMMT ✅ +10% | SYM ❌ -7% | VKTX ✅ +11% | OSCR ✅ +11% | RGTI ❌ -7% | NNE ✅ +10% | MDB ❌ -7% | ADSK ✅ +10% | RDDT ✅ +10% | CLSK ✅ +10% | TDOC ❌ -7% | INOD ❌ -7% | SEDG ✅ +10% | LCID ❌ -7%
 10 of 16 winners (62% win) · avg winner +10%
 Backtest n=63: 67% TP1 hit · 71% profitable · +5.2% avg/trade
