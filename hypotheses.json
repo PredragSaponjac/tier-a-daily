@@ -57,7 +57,14 @@
      "note": "USER GOAL 9/02: names that start working immediately. Sharper than H5 (d1 not d3). 6 of 9 winners were green on DAY 1. Registered today — scores only on signals after 2026-09-02."},
     {"id": "S2_fast_t1_entry_fingerprint", "registered": "2026-09-02", "status": "active",
      "type": "speed", "feature": "*", "direction": "any",
-     "note": "USER GOAL 9/02: which ENTRY metrics (if any) predict days_to_t1 among winners, prospectively. 8/17 found only atm_iv (18 features). Every feature tested is counted in the correction."}
+     "note": "USER GOAL 9/02: which ENTRY metrics (if any) predict days_to_t1 among winners, prospectively. 8/17 found only atm_iv (18 features). Every feature tested is counted in the correction."},
+    {"id": "S3_ticker_vix", "registered": "2026-09-02", "status": "active",
+     "type": "entry_filter", "feature": "ticker_vix", "op": ">=", "threshold": 90,
+     "outcome": "hit_t1", "direction": "higher",
+     "note": "From the 9/02 inventory screen of 41 never/rarely-tested fields: the ONLY raw whisper (rho +0.34, p=0.014; ~2 false positives expected at that level). Above-median (90.1) hit-T1 73% vs 38% on 52 resolved. Cboe-style 30d constant-maturity IV from the whole chain; corr with atm_iv only +0.56 so not merely Q8 again. Threshold frozen at the sample median. Must repeat on signals AFTER 9/02."},
+    {"id": "S4_sector_skew_breadth_speed", "registered": "2026-09-02", "status": "active",
+     "type": "speed", "feature": "sector_breadth_skew_down", "direction": "negative_rho",
+     "note": "9/02 screen: fraction of sector peers with FALLING skew vs days_to_t1 among winners rho -0.78 p=0.002 — but n=21 and halves SPLIT, and it has NO effect on whether it wins (p=0.61). Speed claim only; sparse column. Register, do not believe yet."}
   ],
   "retired": [
     {"id": "skew_slope_alone", "retired": "2026-08-24", "reason": "NULL on 51 qualifiers: gap +0.48pp, p=0.482, periods disagree."},

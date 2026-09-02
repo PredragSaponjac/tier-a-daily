@@ -57,6 +57,13 @@ def load_frame(con):
     b = pd.read_sql_query("""SELECT scan_date, COUNT(*) AS washouts FROM candidate_log
            WHERE spot_return_pct<=-8 GROUP BY scan_date""", con)
     d = p.merge(c, on=['ticker', 'scan_date'], how='left').merge(b, on='scan_date', how='left')
+    # Same universe as the live bot (2026-09-02): drop leveraged ETFs/ETNs + sector-Unknown.
+    # Defensive — path_labels now excludes them too — so stale rows can never leak in.
+    try:
+        from scanner_reader import EXCLUDED_ETFS
+        d = d[~d.ticker.isin(EXCLUDED_ETFS) & (d.sector.fillna('Unknown') != 'Unknown')]
+    except Exception:
+        pass
     d['cushion_pct'] = (d.spot_close / d.put_wall_strike - 1) * 100
     d['vol_cushion'] = d.cushion_pct / (d.atm_iv / np.sqrt(252))
     d['sector_iv_rank'] = d['sector_iv_rank'].replace(0.0, np.nan)      # 0.0 = missing-coded
@@ -197,10 +204,11 @@ def score_one(h, d, n_min, p_bar):
 
 
 def score_registry(con, registry, today=None, archives_dir=None):
-    global ARCHIVES
+    global ARCHIVES, _FRAME
     if archives_dir:
         ARCHIVES = archives_dir
     d = load_frame(con)
+    _FRAME = d                                   # reused by loser_ledger (no second skew_slope pass)
     active = [h for h in registry['hypotheses'] if h.get('status') == 'active']
     # multiplicity: every active idea, and every feature a wildcard speed test touches
     n_tests = sum(len(SPEED_FEATURES) if (h['type'] == 'speed' and h['feature'] == '*') else 1
@@ -220,8 +228,61 @@ def score_registry(con, registry, today=None, archives_dir=None):
     return out, p_bar, n_tests
 
 
+_FRAME = None
+
+
+def loser_ledger(registry):
+    """LEARN FROM LOSERS, EVERY WEEK (user request 2026-09-02).
+
+    Replays every registered ENTRY rule against every resolved qualifier and charges
+    each rule with the WINNERS it would also have blocked. A rule only earns 'helps' if
+    it blocks losers without eating winners. Descriptive — a replay, not a verdict — and
+    in-sample for ideas registered before the rows, which is why it never promotes
+    anything on its own. Also names the losers NO rule would have caught: those are
+    variance until a rule proves otherwise, and treating them as mistakes is how
+    overfitting starts.
+    """
+    d = _FRAME
+    if d is None or d.empty or registry is None:
+        return []
+    r = d[d.outcome.isin(['T1', 'STOP'])].copy()
+    L, W = r[r.outcome == 'STOP'], r[r.outcome == 'T1']
+    if L.empty:
+        return ['📕 LOSER LEDGER: no stopped qualifiers yet.', '']
+    lines = [f'📕 LOSER LEDGER — {len(L)} stopped vs {len(W)} hit-T1 among ALL resolved qualifiers '
+             f'(descriptive replay; in-sample for older ideas):']
+    unavoidable = set(L.ticker + '@' + L.scan_date)
+    for h in [h for h in registry['hypotheses'] if h.get('status') == 'active'
+              and h['type'] in ('entry_filter', 'post_entry')]:
+        f = h['feature']
+        if f not in r:
+            continue
+        x = r.copy()
+        if h['type'] == 'post_entry':
+            x[f] = x[f].fillna(999)
+        x = x[x[f].notna()]
+        m = _mask(x, f, h['op'], h['threshold'])
+        lb, wb = x[(~m) & (x.outcome == 'STOP')], x[(~m) & (x.outcome == 'T1')]
+        if h['type'] == 'entry_filter':          # only ENTRY rules count as "avoidance";
+            unavoidable -= set(lb.ticker + '@' + lb.scan_date)   # post-entry rules cannot avoid a trade
+        if len(lb) >= len(wb) + 2 and len(wb) <= max(1, len(W) // 10):
+            tag = 'helps'
+        elif len(wb) and len(wb) >= len(lb):
+            tag = 'HURTS'
+        else:
+            tag = 'wash'
+        lines.append(f"  {h['id']:28s} blocks {len(lb):2d} losers / {len(wb):2d} winners  → {tag}")
+    lines.append(f'  losers NO registered entry rule would have caught: {len(unavoidable)} of {len(L)} '
+                 f'← variance until a rule proves otherwise')
+    for _, x in L.sort_values('scan_date').tail(3).iterrows():
+        g = '-' if pd.isna(x.first_green_day) else f'd{int(x.first_green_day)}'
+        s = '-' if pd.isna(x.days_to_stop) else f'd{int(x.days_to_stop)}'
+        lines.append(f'  latest: {x.ticker} {x.scan_date}  first green {g}  peak {x.mfe_pct:+.1f}%  stopped {s}')
+    return lines + ['']
+
+
 # ----------------------------------------------------------------- digest
-def digest(results, p_bar, n_tests, con):
+def digest(results, p_bar, n_tests, con, registry=None):
     tot = con.execute('SELECT COUNT(*), SUM(complete) FROM tier_a_paths').fetchone()
     lines = [f'🔬 TIER A SELF-AUDIT — {dt.date.today()}',
              f'{tot[0]} qualified names path-labeled ({tot[1]} resolved). '
@@ -241,6 +302,7 @@ def digest(results, p_bar, n_tests, con):
                         (f"  halves {'agree' if r['halves_agree'] else ('SPLIT' if r['halves_agree'] is False else 'n/a')}")
             lines.append(f"  • {r['id']} (reg {r['registered']}): {r['detail']}{extra}")
         lines.append('')
+    lines += loser_ledger(registry)
     if any(r['verdict'] == 'READY FOR DECISION' for r in results):
         lines.append('🟢 = cleared its bar on fresh data. This is a DECISION for you, not a change — '
                      'say the word and it gets implemented; say no and it keeps tracking.')
@@ -261,7 +323,7 @@ def main():
         mae_pct REAL, mfe_pct REAL, outcome TEXT, pnl_pct REAL, r_live REAL, r_stop5 REAL, r_stop6 REAL,
         r_t12 REAL, bars_seen INTEGER, complete INTEGER, labeled_at TEXT, PRIMARY KEY (ticker, scan_date))""")
     results, p_bar, n_tests = score_registry(con, registry)
-    text = digest(results, p_bar, n_tests, con)
+    text = digest(results, p_bar, n_tests, con, registry)
     print(text)
     if a.json:
         json.dump({'date': dt.date.today().isoformat(), 'p_bar': p_bar, 'n_tests': n_tests,

@@ -99,6 +99,14 @@ def main():
     con.execute(DDL)
     today = dt.date.today()
     q = pd.read_sql_query(TIER_A, con, params=((today - dt.timedelta(days=1)).isoformat(),))
+    # SAME UNIVERSE AS THE LIVE BOT (fixed 2026-09-02). scanner_reader.read_tier_a drops
+    # leveraged ETFs/ETNs and sector-Unknown names; the raw SQL here did not, so 7 of 57
+    # "qualifiers" (LABU, NUGT, SOXS, UVIX, UVXY) were names the bot could never pick.
+    # Every research query since 8/17 shared this leak; this table is the fix going forward.
+    from scanner_reader import EXCLUDED_ETFS
+    sec = pd.read_sql_query('SELECT ticker, scan_date, sector FROM candidate_log', con)
+    q = q.merge(sec, on=['ticker', 'scan_date'], how='left')
+    q = q[~q.ticker.isin(EXCLUDED_ETFS) & (q.sector.fillna('Unknown') != 'Unknown')]
     q['cushion_pct'] = (q.spot_close / q.put_wall_strike - 1) * 100
     q['vol_cushion'] = q.cushion_pct / (q.atm_iv / math.sqrt(252))
     q = q[(q.cushion_pct >= 0) & (q.cushion_pct <= 100)]
