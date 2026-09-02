@@ -43,7 +43,7 @@
      "note": "9/02: p=0.059, halves SPLIT (great early, negative late). Recent tape does not reach far targets."},
     {"id": "Q5_take_all_vs_one", "registered": "2026-08-17", "status": "active",
      "type": "portfolio", "outcome": "R", "direction": "skipped_ge_picked",
-     "note": "We discard ~60% of qualified names by a tiebreaker with NO measured skill. 9/02: SKIPPED R +0.457 vs PICKED +0.156, Sharpe-ish 2.6x. A CAPITAL decision, not a filter."},
+     "note": "We discarded ~60% of qualified names by a tiebreaker with NO measured skill. 9/02 clean universe: SKIPPED R +0.518 vs PICKED +0.023, p(picked>skipped)=0.908, Sharpe-ish ~16x. ADOPTED 2026-09-02 (parameters 1.1.0, take_all_qualified=true, max_concurrent=6) — the user's capital decision, live from the 9/03 PM scan. From then on 'skipped' accrues only from the cap; this entry keeps scoring the OLD rule's counterfactual because the archive still records picked_ticker (= top-ranked) beside taken_tickers. If PICKED ever beats SKIPPED on fresh data, that is the signal to revisit."},
     {"id": "Q7_breadth_gate", "registered": "2026-08-17", "status": "active",
      "type": "entry_filter", "feature": "washouts", "op": "<", "threshold": 170,
      "outcome": "hit_t1", "direction": "higher",
