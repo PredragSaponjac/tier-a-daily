@@ -6,6 +6,11 @@ __pycache__/
 venv/
 uw_cache/
 *.log
+# EXCEPTION (2026-09-02): the tweet-id log MUST persist — it is the only way to find a
+# published post again to correct or delete it. `*.log` above silently made every
+# `git add x_posted.log` in the workflows a no-op for three weeks (git refuses to add an
+# ignored path; `2>/dev/null || true` hid the refusal). Every id since 8/11 was lost.
+!x_posted.log
 track_record.csv
 skew_history.db
 skew_history.db-journal

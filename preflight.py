@@ -233,11 +233,22 @@ def check_wiring():
         base = art.split('/')[0] + ('/' if art.endswith('/') else '')
         if base in ('.env', 'requirements.txt'):
             continue
-        committed = (f'git add {base}' in wf) or (f'git add {art}' in wf)
-        gitignored = base.rstrip('/') in (REPO / '.gitignore').read_text(encoding='utf-8')
-        hard(f'artifact "{art}" survives the runner',
-             committed or gitignored,
-             'code writes it but NO workflow git-adds it — it will be discarded')
+        has_add = (f'git add {base}' in wf) or (f'git add {art}' in wf)
+        # Ask GIT whether the path is ignored — never substring-match .gitignore text.
+        # (2026-09-02) `*.log` ignored x_posted.log, so the `git add x_posted.log` line in
+        # the workflows was a silent no-op for three weeks (git refuses to add an ignored
+        # path; `2>/dev/null || true` hid the refusal). The old check passed because the
+        # git-add LINE existed; it never asked whether git would honour it.
+        import subprocess
+        ignored = subprocess.run(['git', 'check-ignore', '-q', art.rstrip('/')],
+                                 cwd=REPO, capture_output=True).returncode == 0
+        if has_add and ignored:
+            hard(f'artifact "{art}" survives the runner', False,
+                 'workflow git-adds it BUT it is gitignored — the add is a silent no-op')
+        else:
+            hard(f'artifact "{art}" survives the runner',
+                 has_add or ignored,
+                 'code writes it but NO workflow git-adds it — it will be discarded')
 
     # CLOSE-RECORD LOOP (added 2026-08-14, earned twice: ADSK 7/16, RDDT 8/14).
     # The file a close WRITES must be the same file the Sheet and the record line

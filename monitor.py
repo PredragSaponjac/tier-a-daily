@@ -44,8 +44,18 @@ def _publish_close(pos: dict, tk: str, entry: float, exit_price: float,
             with open(path, 'w', encoding='utf-8') as fh:
                 fh.write(msg)
             print(f'  [{tk}] X close post FAILED — draft saved to {path}')
+            # SHOUT (added 2026-09-02). The LCID stop-out on 9/02 failed to post
+            # (X API 402 "credits depleted") and nobody knew until a manual audit —
+            # a public entry sat with no published result, the asymmetry we forbid.
+            # The Telegram close above already went out, so this is a second, explicit
+            # message: the X side is broken and the draft needs a hand post.
+            send_telegram(
+                f'⚠️ {tk} close was NOT published on X (API rejected it). The public '
+                f'entry has no public result. Draft saved: {path} — check X API '
+                f'credits/limits and post it by hand.')
     except Exception as e:
         print(f'  [{tk}] X close post error: {e}')
+        send_telegram(f'⚠️ {tk} close hit an error before reaching X: {e}')
 
 
 def _today_iso() -> str:

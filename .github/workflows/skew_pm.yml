@@ -146,6 +146,17 @@ jobs:
           fi
           python main.py $ARGS
 
+      # DATA-LANDING CHECK (wired 2026-09-02). verify_daily.py existed since 7/31 but was
+      # never called by any workflow — it only ran when someone remembered to run it by
+      # hand. It asserts today's rows actually exist (skew_daily, candidate_log,
+      # fixed_strike_vol, sector_iv_rank populated, archive written). Non-blocking for
+      # the signal (that already went out); it fails the RUN so the failure is visible.
+      - name: Verify today's data landed
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          SKEW_DB_PATH: ./skew_history.db
+        run: python verify_daily.py "$(TZ=America/New_York date +%Y-%m-%d)"
+
       - name: Commit archive state
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
