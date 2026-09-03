@@ -70,6 +70,7 @@
     {"id": "skew_slope_alone", "retired": "2026-08-24", "reason": "NULL on 51 qualifiers: gap +0.48pp, p=0.482, periods disagree."},
     {"id": "upside_mirror / up_momentum_long / short_the_knife", "retired": "2026-07-31", "reason": "ALL REFUTED stop-aware; random-pick hurdle +0.95%/trade. The short side has been tested; no edge."},
     {"id": "atr_scaled_stop", "retired": "2026-07-31", "reason": "Raw % triples, R is a wash (+0.434 -> +0.470, CIs overlap). Logged only."},
-    {"id": "vol_cushion_tiebreaker", "retired": "2026-08-10", "reason": "Spearman +0.035 (p=0.835) vs outcomes — no skill. Left in place pending Q5."}
+    {"id": "vol_cushion_tiebreaker", "retired": "2026-08-10", "reason": "Spearman +0.035 (p=0.835) vs outcomes — no skill. Superseded by Q5 take-all (adopted 2026-09-02)."},
+    {"id": "post_entry_structure_exit", "retired": "2026-09-02", "reason": "User idea: does skew / put wall / put-call EVOLUTION on day+1..+3 after entry separate T1 from STOP (an early-exit tell)? 44 resolved qualifiers, 10 structure features x 3 days = 30 tests, deltas only while still open (no post-stop leakage), Bonferroni p<0.0017: NOT ONE test reaches even raw p<0.05 (best 0.224). Structural skew rises +9..+12 pts after entry in BOTH groups — the qualifying collapse mean-reverts in everyone, so 'structure changed' is identical for winners and losers. The PRICE tell in the same rows works (green at day 1: 79% vs 40% win, p=0.038) — that is H5/S1. Do not build a structure-based early exit."}
   ]
 }
