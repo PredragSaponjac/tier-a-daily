@@ -48,7 +48,12 @@ DDL = """CREATE TABLE IF NOT EXISTS tier_a_paths (
   mae_pct REAL, mfe_pct REAL, outcome TEXT, pnl_pct REAL,
   r_live REAL, r_stop5 REAL, r_stop6 REAL, r_t12 REAL,
   bars_seen INTEGER, complete INTEGER, labeled_at TEXT,
+  call_wall_oi_d2 REAL,
   PRIMARY KEY (ticker, scan_date))"""
+
+# Columns added after the table first shipped (CREATE IF NOT EXISTS cannot add them).
+# S5_call_wall_oi_d2 (registered 2026-09-02): call-wall OI LEVEL two scans after entry.
+ADD_COLS = [('call_wall_oi_d2', 'REAL')]
 
 
 def walk(fut, entry, t1_pct, stop_pct):
@@ -94,9 +99,37 @@ def label_one(g, d, entry):
     return rec
 
 
+def backfill_call_wall_oi_d2(con):
+    """S5 (registered 2026-09-02): call-wall OI LEVEL two scans after entry, for every
+    path row that lacks it. Pure SQL against candidate_log — no price download — so it
+    also fills rows that were already complete when the column was added."""
+    dates = [d for (d,) in con.execute('SELECT DISTINCT scan_date FROM candidate_log ORDER BY scan_date')]
+    idx = {d: i for i, d in enumerate(dates)}
+    rows = con.execute('SELECT ticker, scan_date FROM tier_a_paths WHERE call_wall_oi_d2 IS NULL').fetchall()
+    n = 0
+    for tk, sd in rows:
+        i = idx.get(sd)
+        if i is None or i + 2 >= len(dates):
+            continue
+        v = con.execute('SELECT call_wall_oi FROM candidate_log WHERE ticker=? AND scan_date=?',
+                        (tk, dates[i + 2])).fetchone()
+        if v and v[0] is not None:
+            con.execute('UPDATE tier_a_paths SET call_wall_oi_d2=? WHERE ticker=? AND scan_date=?',
+                        (float(v[0]), tk, sd)); n += 1
+    con.commit()
+    if n:
+        print(f'[paths] call_wall_oi_d2 backfilled for {n} rows')
+
+
 def main():
     con = sqlite3.connect(DB)
     con.execute(DDL)
+    for col, typ in ADD_COLS:                       # idempotent schema migration
+        try:
+            con.execute(f'ALTER TABLE tier_a_paths ADD COLUMN {col} {typ}')
+        except sqlite3.OperationalError:
+            pass                                    # already there
+    backfill_call_wall_oi_d2(con)
     today = dt.date.today()
     q = pd.read_sql_query(TIER_A, con, params=((today - dt.timedelta(days=1)).isoformat(),))
     # SAME UNIVERSE AS THE LIVE BOT (fixed 2026-09-02). scanner_reader.read_tier_a drops
@@ -141,6 +174,7 @@ def main():
             con.execute(f'INSERT OR REPLACE INTO tier_a_paths ({cols}) VALUES ({qs})', list(rec.values()))
             n += 1
     con.commit()
+    backfill_call_wall_oi_d2(con)     # again: INSERT OR REPLACE above wiped it on relabeled rows
     tot = con.execute('SELECT COUNT(*), SUM(complete) FROM tier_a_paths').fetchone()
     print(f'[paths] wrote {n} rows; table now {tot[0]} rows, {tot[1]} complete')
     con.close()
