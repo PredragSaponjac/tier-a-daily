@@ -1,83 +1,83 @@
 {
-  "date": "2026-09-02",
-  "p_bar": 0.0019230769230769232,
-  "n_tests": 26,
+  "date": "2026-09-04",
+  "p_bar": 0.001851851851851852,
+  "n_tests": 27,
   "results": [
     {
       "id": "H1_sector_iv_rank",
       "type": "entry_filter",
       "registered": "2026-07-28",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 3,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 4,
       "n_fail": 4,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 3 / fail 4 labeled (need 10 each)"
+      "detail": "pass 4 / fail 4 labeled (need 10 each)"
     },
     {
       "id": "H2_combo_rank_slope",
       "type": "entry_filter",
       "registered": "2026-07-28",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 2,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 3,
       "n_fail": 5,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 2 / fail 5 labeled (need 10 each)"
+      "detail": "pass 3 / fail 5 labeled (need 10 each)"
     },
     {
       "id": "H3_iv_hv_ratio",
       "type": "entry_filter",
       "registered": "2026-07-28",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 0,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 1,
       "n_fail": 7,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 0 / fail 7 labeled (need 10 each)"
+      "detail": "pass 1 / fail 7 labeled (need 10 each)"
     },
     {
       "id": "H5_green_by_day3",
       "type": "post_entry",
       "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 1,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 2,
       "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 1 / fail 1 labeled (need 10 each)"
+      "detail": "pass 2 / fail 1 labeled (need 10 each)"
     },
     {
       "id": "Q2_stop_minus5_shadow",
       "type": "exit_shadow",
       "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 4,
+      "n_fail": 4,
+      "verdict": "INSUFFICIENT",
+      "detail": "4 resolved (need 10)"
+    },
+    {
+      "id": "Q2_stop_minus6_shadow",
+      "type": "exit_shadow",
+      "registered": "2026-08-17",
+      "p_bar": 0.001851851851851852,
       "n_pass": 3,
       "n_fail": 3,
       "verdict": "INSUFFICIENT",
       "detail": "3 resolved (need 10)"
     },
     {
-      "id": "Q2_stop_minus6_shadow",
-      "type": "exit_shadow",
-      "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 2,
-      "n_fail": 2,
-      "verdict": "INSUFFICIENT",
-      "detail": "2 resolved (need 10)"
-    },
-    {
       "id": "Q1_t1_plus12_shadow",
       "type": "exit_shadow",
       "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 2,
-      "n_fail": 2,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 3,
+      "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "2 resolved (need 10)"
+      "detail": "3 resolved (need 10)"
     },
     {
       "id": "Q5_take_all_vs_one",
       "type": "portfolio",
       "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
       "n_pass": 3,
       "n_fail": 3,
       "verdict": "INSUFFICIENT",
@@ -87,17 +87,17 @@
       "id": "Q7_breadth_gate",
       "type": "entry_filter",
       "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
-      "n_pass": 2,
+      "p_bar": 0.001851851851851852,
+      "n_pass": 3,
       "n_fail": 0,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 2 / fail 0 labeled (need 10 each)"
+      "detail": "pass 3 / fail 0 labeled (need 10 each)"
     },
     {
       "id": "Q8_atm_iv_speed",
       "type": "speed",
       "registered": "2026-08-17",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
       "n_pass": 0,
       "n_fail": 0,
       "features_tested": 1,
@@ -108,7 +108,7 @@
       "id": "S1_first_green_day1",
       "type": "post_entry",
       "registered": "2026-09-02",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
       "n_pass": 0,
       "n_fail": 0,
       "verdict": "INSUFFICIENT",
@@ -118,7 +118,7 @@
       "id": "S2_fast_t1_entry_fingerprint",
       "type": "speed",
       "registered": "2026-09-02",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
       "n_pass": 0,
       "n_fail": 0,
       "features_tested": 13,
@@ -129,7 +129,7 @@
       "id": "S3_ticker_vix",
       "type": "entry_filter",
       "registered": "2026-09-02",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
       "verdict": "INSUFFICIENT",
       "detail": "feature ticker_vix unavailable"
     },
@@ -137,12 +137,22 @@
       "id": "S4_sector_skew_breadth_speed",
       "type": "speed",
       "registered": "2026-09-02",
-      "p_bar": 0.0019230769230769232,
+      "p_bar": 0.001851851851851852,
       "n_pass": 0,
       "n_fail": 0,
       "features_tested": 1,
       "verdict": "INSUFFICIENT",
       "detail": "0 winners with days_to_t1 (need 10)"
+    },
+    {
+      "id": "S5_call_wall_oi_d2",
+      "type": "post_entry",
+      "registered": "2026-09-02",
+      "p_bar": 0.001851851851851852,
+      "n_pass": 0,
+      "n_fail": 0,
+      "verdict": "INSUFFICIENT",
+      "detail": "pass 0 / fail 0 labeled (need 10 each)"
     }
   ]
 }
