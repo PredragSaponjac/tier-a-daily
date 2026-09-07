@@ -1,0 +1,44 @@
+{
+  "scan_date": "2026-09-07",
+  "run_at": "2026-09-07T20:20:32.462893Z",
+  "parameters_version": "1.1.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "taken_tickers": [],
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "candidates": [
+    {
+      "ticker": "RZLV",
+      "spot_close": 2.21,
+      "spot_return_pct": -10.16,
+      "skew_change_5d": -7.81,
+      "near_skew": -9.38,
+      "near_dte": 4,
+      "put_wall_strike": 3.0,
+      "put_wall_oi_change": -2601,
+      "sector": "Technology",
+      "industry": "Software - Infrastructure",
+      "dte_earnings": 205,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": null,
+        "liquidity_oi": 66304
+      },
+      "edge": {
+        "sector_iv_rank": 80.5,
+        "skew_slope": 0.69,
+        "iv_hv_ratio": 0.6,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 9.05,
+        "stop_atr": 0.77,
+        "tight_stop": true,
+        "atr2x_stop_pct": 18.1
+      }
+    }
+  ]
+}
