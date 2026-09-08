@@ -1,0 +1,110 @@
+{
+  "scan_date": "2026-09-08",
+  "run_at": "2026-09-08T20:32:01.692661Z",
+  "parameters_version": "1.1.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "taken_tickers": [],
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "candidates": [
+    {
+      "ticker": "BYND",
+      "spot_close": 11.21,
+      "spot_return_pct": -20.78,
+      "skew_change_5d": -16.01,
+      "near_skew": -7.81,
+      "near_dte": 3,
+      "put_wall_strike": 20.0,
+      "put_wall_oi_change": 0,
+      "sector": "Consumer Defensive",
+      "industry": "Packaged Foods",
+      "dte_earnings": 57,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-04",
+        "liquidity_oi": 48454
+      },
+      "edge": {
+        "sector_iv_rank": 100.0,
+        "skew_slope": 2.02,
+        "iv_hv_ratio": 1.81,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 8.33,
+        "stop_atr": 0.84,
+        "tight_stop": true,
+        "atr2x_stop_pct": 16.7
+      }
+    },
+    {
+      "ticker": "PYPL",
+      "spot_close": 53.18,
+      "spot_return_pct": -13.78,
+      "skew_change_5d": -7.01,
+      "near_skew": -9.37,
+      "near_dte": 3,
+      "put_wall_strike": 60.0,
+      "put_wall_oi_change": 0,
+      "sector": "Financial Services",
+      "industry": "Credit Services",
+      "dte_earnings": 49,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-10-27",
+        "liquidity_oi": 335618
+      },
+      "edge": {
+        "sector_iv_rank": 55.6,
+        "skew_slope": 1.35,
+        "iv_hv_ratio": 0.81,
+        "combo_pass": false,
+        "ivr_pass": false,
+        "atr_pct": 3.97,
+        "stop_atr": 1.77,
+        "tight_stop": false,
+        "atr2x_stop_pct": 7.9
+      }
+    },
+    {
+      "ticker": "TPR",
+      "spot_close": 117.58,
+      "spot_return_pct": -11.03,
+      "skew_change_5d": -9.06,
+      "near_skew": -13.09,
+      "near_dte": 3,
+      "put_wall_strike": 146.0,
+      "put_wall_oi_change": 0,
+      "sector": "Consumer Cyclical",
+      "industry": "Luxury Goods",
+      "dte_earnings": 58,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 12861
+      },
+      "edge": {
+        "sector_iv_rank": 33.0,
+        "skew_slope": -2.78,
+        "iv_hv_ratio": 1.38,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 2.92,
+        "stop_atr": 2.4,
+        "tight_stop": false,
+        "atr2x_stop_pct": 5.8
+      }
+    }
+  ]
+}
