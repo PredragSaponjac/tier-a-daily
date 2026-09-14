@@ -1,0 +1,77 @@
+{
+  "scan_date": "2026-09-14",
+  "run_at": "2026-09-14T20:32:28.696878Z",
+  "parameters_version": "1.1.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "taken_tickers": [],
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "candidates": [
+    {
+      "ticker": "ASPI",
+      "spot_close": 3.19,
+      "spot_return_pct": -15.61,
+      "skew_change_5d": -22.26,
+      "near_skew": -39.06,
+      "near_dte": 4,
+      "put_wall_strike": 3.5,
+      "put_wall_oi_change": -33,
+      "sector": "Basic Materials",
+      "industry": "Specialty Chemicals",
+      "dte_earnings": 59,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-12",
+        "liquidity_oi": 18580
+      },
+      "edge": {
+        "sector_iv_rank": 83.3,
+        "skew_slope": -6.18,
+        "iv_hv_ratio": 1.4,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 7.56,
+        "stop_atr": 0.93,
+        "tight_stop": true,
+        "atr2x_stop_pct": 15.1
+      }
+    },
+    {
+      "ticker": "NNE",
+      "spot_close": 15.89,
+      "spot_return_pct": -9.04,
+      "skew_change_5d": -8.49,
+      "near_skew": -8.59,
+      "near_dte": 4,
+      "put_wall_strike": 16.0,
+      "put_wall_oi_change": -34,
+      "sector": "Industrials",
+      "industry": "Specialty Industrial Machinery",
+      "dte_earnings": 94,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": null,
+        "liquidity_oi": 21837
+      },
+      "edge": {
+        "sector_iv_rank": 75.0,
+        "skew_slope": -2.48,
+        "iv_hv_ratio": 1.33,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 6.96,
+        "stop_atr": 1.01,
+        "tight_stop": false,
+        "atr2x_stop_pct": 13.9
+      }
+    }
+  ]
+}
