@@ -1,0 +1,145 @@
+{
+  "scan_date": "2026-09-15",
+  "run_at": "2026-09-15T20:38:35.903718Z",
+  "parameters_version": "1.1.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": "DNUT",
+  "taken_tickers": [
+    "DNUT"
+  ],
+  "notes": "",
+  "candidates": [
+    {
+      "ticker": "DNUT",
+      "spot_close": 3.12,
+      "spot_return_pct": -10.34,
+      "skew_change_5d": -25.78,
+      "near_skew": -48.44,
+      "near_dte": 3,
+      "put_wall_strike": 3.0,
+      "put_wall_oi_change": 0,
+      "sector": "Consumer Defensive",
+      "industry": "Grocery Stores",
+      "dte_earnings": 51,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 4762
+      },
+      "edge": {
+        "sector_iv_rank": 96.6,
+        "skew_slope": -0.06,
+        "iv_hv_ratio": 2.52,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 4.03,
+        "stop_atr": 1.74,
+        "tight_stop": false,
+        "atr2x_stop_pct": 8.1
+      }
+    },
+    {
+      "ticker": "JOBY",
+      "spot_close": 6.13,
+      "spot_return_pct": -10.12,
+      "skew_change_5d": -7.03,
+      "near_skew": -9.37,
+      "near_dte": 3,
+      "put_wall_strike": 6.5,
+      "put_wall_oi_change": -91,
+      "sector": "Industrials",
+      "industry": "Airports & Air Services",
+      "dte_earnings": 50,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-04",
+        "liquidity_oi": 77511
+      },
+      "edge": {
+        "sector_iv_rank": 66.7,
+        "skew_slope": 2.2,
+        "iv_hv_ratio": 1.47,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 4.4,
+        "stop_atr": 1.59,
+        "tight_stop": false,
+        "atr2x_stop_pct": 8.8
+      }
+    },
+    {
+      "ticker": "KSS",
+      "spot_close": 16.41,
+      "spot_return_pct": -14.58,
+      "skew_change_5d": -10.94,
+      "near_skew": -7.23,
+      "near_dte": 3,
+      "put_wall_strike": 19.0,
+      "put_wall_oi_change": -1,
+      "sector": "Consumer Cyclical",
+      "industry": "Department Stores",
+      "dte_earnings": 70,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-24",
+        "liquidity_oi": 39169
+      },
+      "edge": {
+        "sector_iv_rank": 92.0,
+        "skew_slope": 0.44,
+        "iv_hv_ratio": 1.39,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 6.58,
+        "stop_atr": 1.06,
+        "tight_stop": false,
+        "atr2x_stop_pct": 13.2
+      }
+    },
+    {
+      "ticker": "SLS",
+      "spot_close": 11.29,
+      "spot_return_pct": -20.27,
+      "skew_change_5d": -31.25,
+      "near_skew": -38.67,
+      "near_dte": 3,
+      "put_wall_strike": 9.0,
+      "put_wall_oi_change": -3,
+      "sector": "Healthcare",
+      "industry": "Biotechnology",
+      "dte_earnings": 57,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-11",
+        "liquidity_oi": 210307
+      },
+      "edge": {
+        "sector_iv_rank": 95.2,
+        "skew_slope": -2.0,
+        "iv_hv_ratio": 1.77,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 9.91,
+        "stop_atr": 0.71,
+        "tight_stop": true,
+        "atr2x_stop_pct": 19.8
+      }
+    }
+  ]
+}
