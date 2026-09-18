@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-11",
+  "date": "2026-09-18",
   "p_bar": 0.001851851851851852,
   "n_tests": 27,
   "results": [
@@ -78,10 +78,10 @@
       "type": "portfolio",
       "registered": "2026-08-17",
       "p_bar": 0.001851851851851852,
-      "n_pass": 3,
+      "n_pass": 4,
       "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "picked 3 / skipped 3 resolved since archives began (need 10 each)"
+      "detail": "picked 4 / skipped 3 resolved since archives began (need 10 each)"
     },
     {
       "id": "Q7_breadth_gate",
