@@ -1,0 +1,44 @@
+{
+  "scan_date": "2026-09-22",
+  "run_at": "2026-09-22T20:30:17.132071Z",
+  "parameters_version": "1.1.0",
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "taken_tickers": [],
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "candidates": [
+    {
+      "ticker": "RCAT",
+      "spot_close": 6.94,
+      "spot_return_pct": -14.64,
+      "skew_change_5d": -12.11,
+      "near_skew": -7.81,
+      "near_dte": 3,
+      "put_wall_strike": 8.0,
+      "put_wall_oi_change": -18,
+      "sector": "Industrials",
+      "industry": "Aerospace & Defense",
+      "dte_earnings": 44,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": 29120
+      },
+      "edge": {
+        "sector_iv_rank": 81.7,
+        "skew_slope": -2.11,
+        "iv_hv_ratio": 1.16,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 6.6,
+        "stop_atr": 1.06,
+        "tight_stop": false,
+        "atr2x_stop_pct": 13.2
+      }
+    }
+  ]
+}
