@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-18",
+  "date": "2026-09-25",
   "p_bar": 0.001851851851851852,
   "n_tests": 27,
   "results": [
@@ -8,10 +8,10 @@
       "type": "entry_filter",
       "registered": "2026-07-28",
       "p_bar": 0.001851851851851852,
-      "n_pass": 6,
-      "n_fail": 4,
+      "n_pass": 7,
+      "n_fail": 5,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 6 / fail 4 labeled (need 10 each)"
+      "detail": "pass 7 / fail 5 labeled (need 10 each)"
     },
     {
       "id": "H2_combo_rank_slope",
@@ -19,19 +19,19 @@
       "registered": "2026-07-28",
       "p_bar": 0.001851851851851852,
       "n_pass": 3,
-      "n_fail": 7,
+      "n_fail": 9,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 3 / fail 7 labeled (need 10 each)"
+      "detail": "pass 3 / fail 9 labeled (need 10 each)"
     },
     {
       "id": "H3_iv_hv_ratio",
       "type": "entry_filter",
       "registered": "2026-07-28",
       "p_bar": 0.001851851851851852,
-      "n_pass": 3,
-      "n_fail": 7,
+      "n_pass": 4,
+      "n_fail": 8,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 3 / fail 7 labeled (need 10 each)"
+      "detail": "pass 4 / fail 8 labeled (need 10 each)"
     },
     {
       "id": "H5_green_by_day3",
@@ -39,39 +39,39 @@
       "registered": "2026-08-17",
       "p_bar": 0.001851851851851852,
       "n_pass": 4,
-      "n_fail": 1,
+      "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 4 / fail 1 labeled (need 10 each)"
+      "detail": "pass 4 / fail 3 labeled (need 10 each)"
     },
     {
       "id": "Q2_stop_minus5_shadow",
       "type": "exit_shadow",
       "registered": "2026-08-17",
       "p_bar": 0.001851851851851852,
-      "n_pass": 6,
-      "n_fail": 6,
+      "n_pass": 7,
+      "n_fail": 7,
       "verdict": "INSUFFICIENT",
-      "detail": "6 resolved (need 10)"
+      "detail": "7 resolved (need 10)"
     },
     {
       "id": "Q2_stop_minus6_shadow",
       "type": "exit_shadow",
       "registered": "2026-08-17",
       "p_bar": 0.001851851851851852,
-      "n_pass": 5,
-      "n_fail": 5,
+      "n_pass": 7,
+      "n_fail": 7,
       "verdict": "INSUFFICIENT",
-      "detail": "5 resolved (need 10)"
+      "detail": "7 resolved (need 10)"
     },
     {
       "id": "Q1_t1_plus12_shadow",
       "type": "exit_shadow",
       "registered": "2026-08-17",
       "p_bar": 0.001851851851851852,
-      "n_pass": 5,
-      "n_fail": 5,
+      "n_pass": 7,
+      "n_fail": 7,
       "verdict": "INSUFFICIENT",
-      "detail": "5 resolved (need 10)"
+      "detail": "7 resolved (need 10)"
     },
     {
       "id": "Q5_take_all_vs_one",
@@ -88,10 +88,10 @@
       "type": "entry_filter",
       "registered": "2026-08-17",
       "p_bar": 0.001851851851851852,
-      "n_pass": 3,
+      "n_pass": 5,
       "n_fail": 2,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 3 / fail 2 labeled (need 10 each)"
+      "detail": "pass 5 / fail 2 labeled (need 10 each)"
     },
     {
       "id": "Q8_atm_iv_speed",
@@ -110,9 +110,9 @@
       "registered": "2026-09-02",
       "p_bar": 0.001851851851851852,
       "n_pass": 0,
-      "n_fail": 0,
+      "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 0 / fail 0 labeled (need 10 each)"
+      "detail": "pass 0 / fail 1 labeled (need 10 each)"
     },
     {
       "id": "S2_fast_t1_entry_fingerprint",
@@ -150,9 +150,9 @@
       "registered": "2026-09-02",
       "p_bar": 0.001851851851851852,
       "n_pass": 0,
-      "n_fail": 0,
+      "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 0 / fail 0 labeled (need 10 each)"
+      "detail": "pass 0 / fail 1 labeled (need 10 each)"
     }
   ]
 }
