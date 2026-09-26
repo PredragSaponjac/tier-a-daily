@@ -403,9 +403,13 @@ def check_self_audit():
             n_legs INTEGER, entry REAL, first_green_day INTEGER, days_to_t1 INTEGER, days_to_stop INTEGER,
             mae_pct REAL, mfe_pct REAL, outcome TEXT, pnl_pct REAL, r_live REAL, r_stop5 REAL, r_stop6 REAL,
             r_t12 REAL, bars_seen INTEGER, complete INTEGER, labeled_at TEXT, PRIMARY KEY (ticker, scan_date))""")
+        # ticker_vix is here deliberately: it is a REGISTERED feature that the scorer's old
+        # hand-written column list did not load, so S3 could never produce a verdict while
+        # still inflating the Bonferroni divisor. This asserts the loader picks up any
+        # candidate_log column.
         con.execute("""CREATE TABLE candidate_log (ticker TEXT, scan_date TEXT, sector TEXT, spot_close REAL,
             spot_return_pct REAL, put_wall_strike REAL, atm_iv REAL, hv_10d REAL, iv_hv_ratio REAL, skew REAL,
-            skew_change_5d REAL, near_skew REAL, near_dte INTEGER, sector_iv_rank REAL)""")
+            skew_change_5d REAL, near_skew REAL, near_dte INTEGER, sector_iv_rank REAL, ticker_vix REAL)""")
         for i in range(24):
             d = f'2026-08-{(i % 20) + 1:02d}'
             win = i % 3 != 0
@@ -413,7 +417,7 @@ def check_self_audit():
                         (f'T{i}', d, 1 if win else None, 4 if win else None, None if win else 3,
                          'T1' if win else 'STOP', 10 if win else -7, (10 / 7) if win else -1,
                          2 if win else -1, (10 / 6) if win else -1, (12 / 7) if win else -1, today))
-            con.execute('INSERT INTO candidate_log VALUES (?,?,?,100,-15,85,80,70,1.2,-12,-9,-8,4,?)',
+            con.execute('INSERT INTO candidate_log VALUES (?,?,?,100,-15,85,80,70,1.2,-12,-9,-8,4,?,95)',
                         (f'T{i}', d, 'Tech', 70 if win else 40))
         con.commit()
         keep = SA.DB
@@ -429,6 +433,24 @@ def check_self_audit():
              str([r for r in res if r.get('verdict') == 'ERROR'])[:300])
         hard('self_audit corrected bar shrinks with idea count', abs(p_bar - 0.05 / n_tests) < 1e-12,
              f'p_bar {p_bar} vs 0.05/{n_tests}')
+        # EVERY registered feature must be reachable by the scorer. An unscoreable idea is
+        # worse than an unregistered one: it never returns a verdict yet still divides the
+        # significance bar. (S3/S4 sat unscoreable from 2026-09-02 to 2026-09-26.)
+        want = {h['feature'] for h in reg['hypotheses']
+                if h.get('status') == 'active' and h.get('feature') not in (None, '*')}
+        # Give the synthetic DB a column for every registered feature, so this asserts the
+        # LOADER exposes what the database holds, rather than asserting the fixture is
+        # complete. Derived fields (combo_pass) are computed by load_frame, not stored.
+        have = {r[1] for tb in ('candidate_log', 'tier_a_paths')
+                for r in con.execute(f'PRAGMA table_info({tb})')}
+        DERIVED = {'combo_pass', 'washouts'}      # load_frame computes these; adding a
+        for f in sorted(want - have - DERIVED):   # same-named column collides on merge
+            con.execute(f'ALTER TABLE candidate_log ADD COLUMN {f} REAL')
+        con.commit()
+        frame = SA.load_frame(con)
+        missing = sorted(f for f in want if f not in frame.columns)
+        hard('every registered feature is loadable by the scorer',
+             not missing, f'unscoreable, yet counted in the Bonferroni divisor: {missing}')
     except Exception as e:
         hard('self_audit functional check', False, f'{type(e).__name__}: {e}')
 

@@ -51,9 +51,12 @@ def load_frame(con):
     p = pd.read_sql_query('SELECT * FROM tier_a_paths', con)
     if p.empty:
         return p
-    c = pd.read_sql_query("""SELECT ticker, scan_date, sector, spot_close, spot_return_pct,
-           put_wall_strike, atm_iv, hv_10d, iv_hv_ratio, skew, skew_change_5d, near_skew,
-           near_dte, sector_iv_rank FROM candidate_log""", con)
+    # SELECT * on purpose (fixed 2026-09-26). A hand-written column list silently made
+    # S3 (ticker_vix) and S4 (sector_breadth_skew_down) UNSCOREABLE from the day they were
+    # registered: they still counted toward the Bonferroni divisor, raising the bar for
+    # every other idea, while never producing a verdict. Any registered feature that
+    # exists in candidate_log must be reachable without editing this query.
+    c = pd.read_sql_query('SELECT * FROM candidate_log', con)
     b = pd.read_sql_query("""SELECT scan_date, COUNT(*) AS washouts FROM candidate_log
            WHERE spot_return_pct<=-8 GROUP BY scan_date""", con)
     d = p.merge(c, on=['ticker', 'scan_date'], how='left').merge(b, on='scan_date', how='left')
