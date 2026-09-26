@@ -420,6 +420,17 @@ def check_self_audit():
             con.execute('INSERT INTO candidate_log VALUES (?,?,?,100,-15,85,80,70,1.2,-12,-9,-8,4,?,95)',
                         (f'T{i}', d, 'Tech', 70 if win else 40))
         con.commit()
+        # Give the synthetic DB a column for every registered feature BEFORE scoring, so a
+        # newly registered idea cannot ERROR here merely because this fixture predates it.
+        # Derived fields are computed by load_frame; a same-named column collides on merge.
+        want = {h['feature'] for h in reg['hypotheses']
+                if h.get('status') == 'active' and h.get('feature') not in (None, '*')}
+        DERIVED = {'combo_pass', 'washouts'}
+        have = {r[1] for tb in ('candidate_log', 'tier_a_paths')
+                for r in con.execute(f'PRAGMA table_info({tb})')}
+        for f in sorted(want - have - DERIVED):
+            con.execute(f'ALTER TABLE candidate_log ADD COLUMN {f} REAL')
+        con.commit()
         keep = SA.DB
         try:
             SA.DB = str(tmp / 'probe.db')
@@ -436,17 +447,6 @@ def check_self_audit():
         # EVERY registered feature must be reachable by the scorer. An unscoreable idea is
         # worse than an unregistered one: it never returns a verdict yet still divides the
         # significance bar. (S3/S4 sat unscoreable from 2026-09-02 to 2026-09-26.)
-        want = {h['feature'] for h in reg['hypotheses']
-                if h.get('status') == 'active' and h.get('feature') not in (None, '*')}
-        # Give the synthetic DB a column for every registered feature, so this asserts the
-        # LOADER exposes what the database holds, rather than asserting the fixture is
-        # complete. Derived fields (combo_pass) are computed by load_frame, not stored.
-        have = {r[1] for tb in ('candidate_log', 'tier_a_paths')
-                for r in con.execute(f'PRAGMA table_info({tb})')}
-        DERIVED = {'combo_pass', 'washouts'}      # load_frame computes these; adding a
-        for f in sorted(want - have - DERIVED):   # same-named column collides on merge
-            con.execute(f'ALTER TABLE candidate_log ADD COLUMN {f} REAL')
-        con.commit()
         frame = SA.load_frame(con)
         missing = sorted(f for f in want if f not in frame.columns)
         hard('every registered feature is loadable by the scorer',

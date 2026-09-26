@@ -53,7 +53,9 @@ DDL = """CREATE TABLE IF NOT EXISTS tier_a_paths (
 
 # Columns added after the table first shipped (CREATE IF NOT EXISTS cannot add them).
 # S5_call_wall_oi_d2 (registered 2026-09-02): call-wall OI LEVEL two scans after entry.
-ADD_COLS = [('call_wall_oi_d2', 'REAL')]
+# r_t8 / r_nevergreen_d2 / r_nevergreen_d3 (registered 2026-09-26): see hypotheses.json.
+ADD_COLS = [('call_wall_oi_d2', 'REAL'), ('r_t8', 'REAL'),
+            ('r_nevergreen_d2', 'REAL'), ('r_nevergreen_d3', 'REAL')]
 
 
 def walk(fut, entry, t1_pct, stop_pct):
@@ -93,9 +95,27 @@ def label_one(g, d, entry):
         'bars_seen': len(fut), 'complete': int(out in ('T1', 'STOP', 'EXPIRED')),
     }
     # shadows — each walked independently with its own rule; NULL while still OPEN
-    for col, t1, sp in (('r_stop5', 10.0, 5.0), ('r_stop6', 10.0, 6.0), ('r_t12', 12.0, 7.0)):
+    for col, t1, sp in (('r_stop5', 10.0, 5.0), ('r_stop6', 10.0, 6.0),
+                        ('r_t12', 12.0, 7.0), ('r_t8', 8.0, 7.0)):
         p, _, o = walk(fut, entry, t1, sp)
         rec[col] = round(p / sp, 4) if o != 'OPEN' else None
+
+    # NEVER-GREEN EXIT shadow (registered 2026-09-26). Rule: if the name has not closed
+    # above entry even ONCE through day k, exit at that day-k close; otherwise hold to
+    # T1/stop as normal. This is NOT "red at day k" — that looser condition catches names
+    # that went green then faded, and testing it on 2026-09-02 LOST money (it killed 8
+    # winners). "Never once green" contained zero winners across 49 resolved qualifiers.
+    for col, k in (('r_nevergreen_d2', 2), ('r_nevergreen_d3', 3)):
+        if rec['complete'] != 1:
+            rec[col] = None                                   # unresolved, like the others
+        elif day is not None and day <= k:
+            rec[col] = rec['r_live']                          # already resolved by day k
+        elif green is not None and green <= k:
+            rec[col] = rec['r_live']                          # showed strength, hold
+        elif len(fut) < k:
+            rec[col] = rec['r_live']                          # not enough bars to judge
+        else:
+            rec[col] = round(((float(fut.iloc[k - 1]['Close']) / entry - 1) * 100) / LIVE_STOP, 4)
     return rec
 
 
@@ -146,7 +166,11 @@ def main():
     q = q[(q['skew'] <= -7) | (q.vol_cushion >= 3.0)].copy()
     q['n_legs'] = (q['skew'] <= -7).astype(int) + (q.vol_cushion >= 3.0).astype(int)
 
-    done = pd.read_sql_query('SELECT ticker, scan_date FROM tier_a_paths WHERE complete=1', con)
+    # A row counts as done only if EVERY shadow is filled, so adding a new shadow column
+    # self-heals: existing rows are relabelled once to populate it.
+    done = pd.read_sql_query("""SELECT ticker, scan_date FROM tier_a_paths
+        WHERE complete=1 AND r_t8 IS NOT NULL AND r_nevergreen_d2 IS NOT NULL
+          AND r_nevergreen_d3 IS NOT NULL""", con)
     key = set(zip(done.ticker, done.scan_date))
     todo = q[[(a, b) not in key for a, b in zip(q.ticker, q.scan_date)]]
     print(f'[paths] qualifiers {len(q)}, complete {len(key)}, to (re)label {len(todo)}')
