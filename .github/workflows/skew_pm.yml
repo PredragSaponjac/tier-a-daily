@@ -1,207 +1,179 @@
 name: Skew PM - auto scan, label, scanner, signal
 
-# Trigger:
-#  - 15:45 New York time (2:45 PM Central), Mon-Fri, all year, plus a guarded BACKUP
-#  - Manual via Actions tab
-# NO MANUAL DST SHIFTS (2026-10-04). GitHub cron is UTC, so the scan has a summer cron
-# (19:45 UTC = 15:45 EDT) and a winter cron (20:45 UTC = 15:45 EST). The guard reads WHICH
-# cron fired (github.event.schedule) and New York's current UTC offset, and skips the twin
-# that is wrong for the season. It also refuses any scheduled scan before 15:30 New York
-# time, so a mis-set cron can never produce a mid-session signal.
+# Completed daily bars are reviewed for paper entry at the NEXT regular open.
+# Timezone and queue:max are supported GitHub Actions syntax (official docs).
 on:
-  # Native `schedule:` was REMOVED 2026-06-15 because it fired ~1hr late AND duplicated
-  # cron-job.org, running the PM bot TWICE and sending TWO signals/day (NNE on-time +
-  # ADSK from the late run). But that left cron-job.org as the SOLE trigger, and when its
-  # PAT expired ~2026-06-28 the scanner died silently for 17 trading days (6/27-7/17).
-  # RE-ADDED 2026-07-20 *with* the `guard` job below, which skips the run if today's PM
-  # pipeline already completed — so we get redundancy WITHOUT the double-signal bug.
   schedule:
-    - cron: '45 19 * * 1-5'   # 15:45 EDT (summer); skipped by the guard while New York is on EST
-    - cron: '45 20 * * 1-5'   # 15:45 EST (winter); skipped by the guard while New York is on EDT
-    # BACKUP RUN (2026-10-04). auto_retry.yml was supposed to re-dispatch a failed scheduled
-    # scan, but it NEVER fired: zero runs between 7/27 and 10/04. When both scans failed on
-    # 9/28, nothing retried, and that day produced no data and no signal. This schedule is
-    # a retry that depends on no other workflow: 17:07 EDT / 16:07 EST, queued behind the
-    # primary if it is still running. If the primary completed, the guard sees today's
-    # completion marker and this run exits in seconds. (Not :00 — GitHub delays and drops
-    # scheduled runs most at the top of the hour.)
-    - cron: '7 21 * * 1-5'
+    - cron: '5 16 * * 1-5'
+      timezone: America/New_York
+    - cron: '15 17 * * 1-5'
+      timezone: America/New_York
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (scan on the runner only; no Telegram/X send, no commit, no DB push)'
+        description: 'Scan locally; no sends, commits or release writes'
         type: boolean
         default: false
       scan_date_override:
-        description: 'REPLAY a past scan_date (YYYY-MM-DD), READ-ONLY: no scan, no sends, no commits, no DB push'
+        description: 'Read-only replay YYYY-MM-DD; no scan, sends or writes'
         required: false
         default: ''
 
-# ONE DATABASE WRITER AT A TIME (audit F10, 2026-10-04). AM scan, PM scan and the weekly
-# audit each pull the whole database, change it and push it back; overlapping runs could
-# erase each other's work. Runs in this group queue instead of overlapping, and
-# db_state.py independently refuses any push that would overwrite a newer generation.
-# Never cancel-in-progress: a half-finished scan is worth more than a fresh start.
-# GitHub keeps at most ONE pending run per group (a newer one replaces it). In this
-# schedule the run that can be displaced is a duplicate the guard would skip anyway.
-concurrency:
-  group: tier-a-db-writer
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  # Dupe guard: the PM run SENDS SIGNALS, so its pipeline must never complete twice a day.
-  guard:
+  prepare:
     runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
-      write: ${{ steps.check.outputs.write }}
-      replay_date: ${{ steps.check.outputs.replay_date }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # The LATEST commit, not the one at trigger time (checkout pins the trigger SHA by
-          # default). A run that waited in the queue must see the completion marker the run
-          # ahead of it pushed, or two guards can both pass (audit F10).
-          ref: ${{ github.ref_name }}
-      - id: check
-        env:
-          DRY: ${{ github.event.inputs.dry_run }}
-          REPLAY: ${{ github.event.inputs.scan_date_override }}
-          EVENT: ${{ github.event_name }}
-          SCHED: ${{ github.event.schedule }}
-        run: |
-          # SEASON GATE (scheduled runs only): run the twin that matches New York's season,
-          # and never scan before 15:30 New York time.
-          if [ "$EVENT" = "schedule" ]; then
-            OFFSET=$(TZ=America/New_York date +%z)            # -0400 = EDT, -0500 = EST
-            NOW_ET=$(TZ=America/New_York date +%H%M)
-            WRONG=""
-            case "$SCHED" in
-              '45 19 * * 1-5') [ "$OFFSET" = "-0400" ] || WRONG="summer-time cron while New York is on EST" ;;
-              '45 20 * * 1-5') [ "$OFFSET" = "-0500" ] || WRONG="winter-time cron while New York is on EDT" ;;
-            esac
-            if [ -z "$WRONG" ] && [ "$NOW_ET" -lt 1530 ]; then
-              WRONG="it is $NOW_ET New York time; a scheduled PM scan never runs before 15:30"
-            fi
-            if [ -n "$WRONG" ]; then
-              echo "Skipping: $WRONG (schedule '$SCHED', offset $OFFSET)."
-              { echo "skip=true"; echo "write=false"; echo "replay_date="; } >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          # Guard on the DATA, not on a commit message (changed 2026-08-28).
-          # last_scan_pm.json is written ONLY when the whole PM pipeline finished: signal
-          # decided, records pushed, database stored (audit F11, 2026-10-04). It used to be
-          # pushed right after the scan, so a later failure (signal, records, DB upload)
-          # left a marker that made every retry skip — with no signal and no stored data.
-          # US/Eastern, not UTC: the trading day is what matters, and after ~20:00 ET
-          # the UTC date has already rolled into tomorrow.
-          TODAY=$(TZ=America/New_York date +%Y-%m-%d)
-          if [ -n "$REPLAY" ]; then
-            if ! [[ "$REPLAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-              echo "::error::scan_date_override must be YYYY-MM-DD, got '$REPLAY'"; exit 1
-            fi
-            echo "REPLAY of $REPLAY: read-only (no scan, no sends, no commits, no database push)."
-            { echo "skip=false"; echo "write=false"; echo "replay_date=$REPLAY"; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$DRY" = "true" ]; then
-            echo "DRY RUN: scans on the runner's copy only; no sends, no commits, no database push."
-            { echo "skip=false"; echo "write=false"; echo "replay_date="; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          LAST=$(python3 -c "import json;print(json.load(open('last_scan_pm.json'))['latest_scan_date'])" 2>/dev/null || echo "none")
-          echo "trading day (ET): $TODAY   last COMPLETED PM pipeline: $LAST"
-          if [ "$LAST" = "$TODAY" ]; then
-            echo "PM pipeline for $TODAY already completed — skipping duplicate run."
-            { echo "skip=true"; echo "write=false"; echo "replay_date="; } >> "$GITHUB_OUTPUT"
-          else
-            echo "No completed PM pipeline for $TODAY — proceeding."
-            { echo "skip=false"; echo "write=true"; echo "replay_date="; } >> "$GITHUB_OUTPUT"
-          fi
-
-  scan_and_signal:
-    needs: guard
-    if: needs.guard.outputs.skip != 'true'
-    runs-on: ubuntu-latest
-    # A normal run takes 40-55 min; a hung run must not hold the writer queue for GitHub's
-    # default 6 hours.
     timeout-minutes: 150
     permissions:
       contents: write
+    concurrency:
+      group: tier-a-db-writer
+      cancel-in-progress: false
+      queue: max
+    outputs:
+      ready: ${{ steps.transfer.outputs.ready }}
+      write: ${{ steps.guard.outputs.write }}
+      replay_date: ${{ steps.guard.outputs.replay_date }}
+      date: ${{ steps.guard.outputs.date }}
     env:
-      WRITE: ${{ needs.guard.outputs.write }}
-      REPLAY_DATE: ${{ needs.guard.outputs.replay_date }}
+      GH_TOKEN: ${{ github.token }}
+      DB_STATE_SERIALIZED: github-actions:tier-a-db-writer
     steps:
-      - name: Checkout tier-a-daily
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-
+          cache: pip
       - name: Install deps
         run: pip install -r requirements.txt
-
-      # skew_history.db is a RELEASE ASSET, not a git file — it crossed GitHub's
-      # 100MB limit on 2026-08-25 and every push was silently rejected for 3 days.
-      # HARD-FAILS if the DB is missing/truncated/corrupt: never scan on a bad database.
-      - name: Fetch database state
+      - name: Session and duplicate guard
+        id: guard
         env:
-          GH_TOKEN: ${{ github.token }}
+          DRY: ${{ inputs.dry_run }}
+          REPLAY: ${{ inputs.scan_date_override }}
+        run: |
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+          from market_time import is_session, now_eastern, session_completed
+          day = now_eastern().date().isoformat()
+          replay = os.environ.get('REPLAY', '')
+          dry = os.environ.get('DRY') == 'true'
+          skip = False
+          if replay:
+              datetime.date.fromisoformat(replay)
+          elif not is_session(day) or not session_completed(day):
+              print('No completed regular session today; skipping.')
+              skip = True
+          elif not dry and Path('last_scan_pm.json').exists():
+              marker = json.loads(Path('last_scan_pm.json').read_text())
+              skip = marker.get('latest_scan_date') == day
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'skip={str(skip).lower()}\nwrite={str(not skip and not dry and not replay).lower()}\n')
+              out.write(f'replay_date={replay}\ndate={replay or day}\n')
+          PY
+      - name: Fetch database state
+        if: steps.guard.outputs.skip != 'true'
         run: bash db_state.sh pull
-
-      # ===== STEP 1: PM SCAN =====
       - name: Run skew_tracker.py (PM scan)
         id: scan
-        if: env.REPLAY_DATE == ''
+        if: steps.guard.outputs.skip != 'true' && steps.guard.outputs.replay_date == ''
         run: |
-          # The full log goes to a file; on failure its tail is printed HERE. On 9/28 both
-          # scans failed and the reason was lost with the runner.
           if python skew_tracker.py > skew_manual_pm.log 2>&1; then
-            echo "Scan complete. Tail of log:"
             tail -10 skew_manual_pm.log
           else
-            rc=$?
-            echo "::error::skew_tracker.py exited with code $rc. Last 60 lines of its log:"
-            tail -60 skew_manual_pm.log
-            exit $rc
+            rc=$?; tail -60 skew_manual_pm.log; exit "$rc"
           fi
-
-      # ===== STEP 2: LABEL FORWARD RETURNS =====
       - name: Run label_candidates.py
-        if: env.REPLAY_DATE == ''
+        id: label
+        if: steps.scan.outcome == 'success'
+        run: python label_candidates.py
+      # Always preserve a successful scan even if a later research stage fails.
+      - name: Store database state
+        id: store
+        if: always() && steps.guard.outputs.write == 'true' && steps.scan.outcome == 'success'
+        run: bash db_state.sh push
+      - name: Prepare exact generation for decision runner
+        id: transfer
+        if: always() && steps.guard.outputs.skip != 'true' && ((steps.guard.outputs.write == 'true' && steps.store.outcome == 'success') || (steps.guard.outputs.write == 'false' && (steps.scan.outcome == 'success' || steps.guard.outputs.replay_date != '')))
         run: |
-          python label_candidates.py
-          echo "Labeling complete"
+          mkdir -p transfer
+          cp .db_generation.json transfer/.db_generation.json
+          if [ '${{ steps.guard.outputs.write }}' != 'true' ] && [ -z '${{ steps.guard.outputs.replay_date }}' ]; then
+            cp skew_history.db transfer/skew_history.db
+          fi
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - name: Transfer scan generation
+        if: always() && steps.transfer.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: decision-generation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: transfer/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+      - name: Preserve scan failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pm-scan-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            skew_manual_pm.log
+            .db_generation.json
+          include-hidden-files: true
+          retention-days: 14
 
-      # The scan takes ~40 min. Pick up whatever the intraday monitor committed meanwhile
-      # (closes, MAE/MFE), so main.py decides against the CURRENT book and its commit does
-      # not collide with the monitor's. FAILS CLOSED (re-audit F10): deciding against a
-      # stale book is refused; the run goes red and the backup run decides instead.
-      - name: Refresh portfolio state
-        id: refresh
-        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+  signal:
+    needs: prepare
+    if: always() && !cancelled() && needs.prepare.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    # Only this short transaction and monitor own the portfolio queue. Long scans
+    # cannot keep the close monitor waiting for an hour.
+    concurrency:
+      group: tier-a-portfolio-writer
+      cancel-in-progress: false
+      queue: max
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WRITE: ${{ needs.prepare.outputs.write }}
+      REPLAY_DATE: ${{ needs.prepare.outputs.replay_date }}
+      SKEW_DB_PATH: ./skew_history.db
+      DURABLE_STATE_CHECKPOINT: ${{ needs.prepare.outputs.write == 'true' && 'git' || 'local' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: decision-generation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: transfer
+      - name: Fetch exact prepared database state
         run: |
-          for i in 1 2 3; do
-            git pull --ff-only origin "${{ github.ref_name }}" && exit 0
-            echo "refresh attempt $i failed; retrying in 15s"; sleep 15
-          done
-          echo "::error::could not refresh portfolio state; refusing to decide against a stale book"
-          exit 1
-
-      # ===== STEP 3: SCANNER + FILTER + ALERTS (the bot) =====
-      # Runs even if labelling failed: forward-return labels are research, not an input
-      # to today's decision. Never after a failed portfolio refresh.
-      - name: Run Tier A Daily bot (scanner + filter + Telegram + X + Sheet)
+          if [ -f transfer/skew_history.db ]; then
+            cp transfer/skew_history.db skew_history.db
+            cp transfer/.db_generation.json .db_generation.json
+          else
+            GEN=$(python -c "import json; print(json.load(open('transfer/.db_generation.json'))['name'])")
+            DB_STATE_PULL_GENERATION="$GEN" bash db_state.sh pull
+          fi
+      - name: Refresh portfolio state (fail closed)
+        run: git pull --ff-only origin "$GITHUB_REF_NAME"
+      - name: Run Tier A Daily bot
         id: signal
-        if: ${{ !cancelled() && ((steps.scan.outcome == 'success' && steps.refresh.outcome == 'success') || env.REPLAY_DATE != '') }}
         env:
-          SKEW_DB_PATH: ./skew_history.db
           UW_API_KEY: ${{ secrets.UW_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -211,73 +183,39 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           GOOGLE_SHEETS_CREDS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDS_BASE64 }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          # X AUTO-POSTING RE-ENABLED 2026-08-03 (user decision). It was gated off
-          # 2026-06-15 after the RUM incident (a micro-cap whose skew flipped bearish
-          # intraday auto-published). Since then three hard gates were added that would
-          # each have blocked RUM: the >=1-strong-leg gate (legs.py), the chain-noise
-          # gate (data_quality.py), and the below-put-wall disqualifier. Drafts are still
-          # written to x_drafts/ (now committed) so every post has an auditable record.
-          # To gate it off again, set this to '0'.
           ENABLE_X_AUTOPOST: '1'
         run: |
           if [ -n "$REPLAY_DATE" ]; then
-            # main.py treats --scan-date as a READ-ONLY replay unless --live (audit F16)
             python main.py --scan-date "$REPLAY_DATE"
-          elif [ "$WRITE" != "true" ]; then
+          elif [ "$WRITE" != 'true' ]; then
             python main.py --require-today --dry-run
           else
-            # main.py also refuses to deliver a date it already decided (retry safety, F11)
             python main.py --require-today
           fi
-
-      # ===== STEP 4: PERSIST. These run even when the signal step FAILED, so a delivery
-      # problem never throws away the day's scan (audit F11/F19). =====
-      - name: Persist the decision record
-        if: ${{ always() && env.WRITE == 'true' && steps.scan.outcome == 'success' }}
-        run: |
-          git config user.name "tier-a-daily-bot"
-          git config user.email "bot@tieradaily.local"
-          # ONE git add PER PATH (fixed 2026-07-28): a single multi-path add is all-or-
-          # nothing — track_record.csv is gitignored (and usually absent in this runner),
-          # which made `git add signals/ ... track_record.csv` FATAL and stage NOTHING,
-          # so signals/ archives were written but never committed (zero ever, since
-          # launch). The 2>/dev/null || true swallowed the fatal for two months.
-          # track_record.csv dropped from the list: it is gitignored by design.
-          git add signals/ 2>/dev/null || true
-          git add x_drafts/ 2>/dev/null || true
-          git add open_positions.json 2>/dev/null || true
-          git add closed_trades.json 2>/dev/null || true
-          git add x_posted.log 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "Daily archive $(TZ=America/New_York date +%Y-%m-%d)"
-          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - decision record NOT persisted'; exit 1; }
-
-      # DATA-LANDING CHECK (wired 2026-09-02). Asserts today's rows actually exist
-      # (skew_daily, candidate_log, fixed_strike_vol, sector_iv_rank populated) and that
-      # the day's archive was written (a missing archive FAILS since 2026-10-04, audit F19).
+      - name: Persist the decision record even on delivery failure
+        id: persist
+        if: always() && env.WRITE == 'true' && steps.signal.outcome != 'skipped'
+        run: python state_lock.py checkpoint
       - name: Verify today's data landed
-        if: ${{ always() && env.WRITE == 'true' && steps.scan.outcome == 'success' }}
-        env:
-          SKEW_DB_PATH: ./skew_history.db
-        run: python verify_daily.py "$(TZ=America/New_York date +%Y-%m-%d)"
-
-      # Persist the DB back to the release — the ONLY durable copy. A new, digest-verified
-      # snapshot; earlier generations are kept (audit F09).
-      - name: Store database state
-        if: ${{ always() && env.WRITE == 'true' && steps.scan.outcome == 'success' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash db_state.sh push
-
-      # LAST, and only if EVERY step above succeeded. This marker is what the guard and the
-      # heartbeat read: "today's PM pipeline is complete and durable". If anything failed,
-      # there is no marker, so the backup run retries — and main.py will not re-deliver a
-      # decision it already archived.
+        id: verify
+        if: always() && env.WRITE == 'true' && steps.signal.outcome != 'skipped'
+        run: python verify_daily.py '${{ needs.prepare.outputs.date }}'
       - name: Mark the PM pipeline complete
-        if: ${{ success() && env.WRITE == 'true' }}
+        if: success() && env.WRITE == 'true' && needs.prepare.result == 'success'
         run: |
-          git config user.name "tier-a-daily-bot"
-          git config user.email "bot@tieradaily.local"
-          python scan_marker.py PM
-          git add last_scan_pm.json
-          git diff --cached --quiet || git commit -m "Skew tracker snapshot $(TZ=America/New_York date +%Y-%m-%d) PM (auto, pipeline complete)"
-          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - completion marker NOT persisted'; exit 1; }
+          python scan_marker.py PM --date '${{ needs.prepare.outputs.date }}'
+          python state_lock.py checkpoint
+      - name: Preserve failed delivery evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pm-delivery-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            signals/
+            open_positions.json
+            closed_trades.json
+            x_drafts/
+            x_posted.log
+            .db_generation.json
+          include-hidden-files: true
+          retention-days: 14

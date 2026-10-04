@@ -16,20 +16,25 @@ the legs themselves are computed off untrustworthy data.
 import datetime as _dt
 import sqlite3
 import statistics as st
+import os
+import math
 
 
-def assess_noise(ticker: str, scan_date: str, db_path: str = 'skew_history.db',
+def assess_noise(ticker: str, scan_date: str, db_path: str = None,
                  lookback: int = 6, std_threshold: float = 20.0,
                  max_gap_days: int = 14) -> dict:
     """Return {skew_std, skew_range, noisy, reason} for a ticker as of scan_date."""
+    db_path = db_path or os.environ.get('SKEW_DB_PATH', 'skew_history.db')
     try:
-        con = sqlite3.connect(db_path); con.row_factory = sqlite3.Row
+        from pathlib import Path
+        con = sqlite3.connect(Path(db_path).resolve().as_uri() + '?mode=ro', uri=True)
+        con.row_factory = sqlite3.Row
         rows = con.execute(
             'SELECT date, skew FROM skew_daily WHERE ticker=? AND date<=? ORDER BY date DESC LIMIT ?',
             (ticker, scan_date, lookback)).fetchall()
         con.close()
     except Exception as e:
-        return {'skew_std': None, 'skew_range': None, 'noisy': False,
+        return {'skew_std': None, 'skew_range': None, 'noisy': True, 'status': 'unknown',
                 'reason': f'noise check skipped ({e})'}
 
     # RECENCY GUARD (added 2026-07-20). The lookback takes the last N ROWS, not the
@@ -41,11 +46,11 @@ def assess_noise(ticker: str, scan_date: str, db_path: str = 'skew_history.db',
         recent = [r for r in rows if r['skew'] is not None
                   and (_sd - _dt.date.fromisoformat(str(r['date'])[:10])).days <= max_gap_days]
     except Exception:
-        recent = [r for r in rows if r['skew'] is not None]
+        recent = []
 
-    sk = [r['skew'] for r in recent]
+    sk = [r['skew'] for r in recent if math.isfinite(r['skew'])]
     if len(sk) < 3:
-        return {'skew_std': None, 'skew_range': None, 'noisy': False,
+        return {'skew_std': None, 'skew_range': None, 'noisy': True, 'status': 'unknown',
                 'reason': (f'⚠️ noise gate UNAVAILABLE — only {len(sk)} day(s) of history '
                            f'within {max_gap_days}d (collection gap). Chain quality NOT verified.')}
 
@@ -55,4 +60,5 @@ def assess_noise(ticker: str, scan_date: str, db_path: str = 'skew_history.db',
     reason = (f"NOISY chain: skew std {sstd:.0f} > {std_threshold:.0f} "
               f"(range {srng:.0f}) — signal unreliable, NO TRADE"
               if noisy else f"chain ok (skew std {sstd:.0f})")
-    return {'skew_std': sstd, 'skew_range': srng, 'noisy': noisy, 'reason': reason}
+    return {'skew_std': sstd, 'skew_range': srng, 'noisy': noisy,
+            'status': 'fail' if noisy else 'pass', 'reason': reason}

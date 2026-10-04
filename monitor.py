@@ -1,212 +1,230 @@
-"""Intraday monitor — yfinance-based (FREE, no UW API calls).
+"""Completed-session paper monitoring and recovery of durable close announcements.
 
-For each open position:
-  1. Pull intraday OHLC since entry (yfinance, 5-min bars during market hours)
-  2. Update MAE/MFE based on intraday highs/lows
-  3. If H reaches T1 -> bot auto-closes at TP1, sends close alert
-  4. If L reaches stop -> bot exits, sends stop alert
-  NOTE: there is NO time-based timeout. Positions exit ONLY on TP1 (win) or STOP (loss).
-
-Runs every 15 min, 13:00-21:45 UTC Mon-Fri: the whole 9:30-16:00 New York session in
-both seasons, plus the post-close run (see tier_a_monitor.yml).
+No intraday broker orders are placed. Current partial daily bars never resolve an
+exit. New signals enter at the next regular-session opening print; existing legacy
+positions retain their documented entry convention.
 """
 import argparse
 import datetime as dt
+import math
 import os
+from contextlib import nullcontext
+
 import yfinance as yf
 from dotenv import load_dotenv
-
-import parameters as P
 import position_tracker as PT
-from exits import resolve_bar, held_extremes   # ONE exit rule, shared with path_labels (F02/F03/F20)
+from exits import completed_history, walk_bars
+from market_time import now_eastern, next_session, last_completed_session, sessions_between
+from state_lock import portfolio_lock, checkpoint
 import x_post
-from alert import format_close, send_telegram
-
+from alert import format_close, send_telegram_status
 
 MAX_TG_ATTEMPTS, MAX_X_ATTEMPTS = 8, 3
 
 
-def publish_pending(dry_run: bool = False) -> int:
-    """Telegram + X on every close, WINS AND LOSSES BOTH — from the close OUTBOX.
+def publish_pending(dry_run=False, exclude=()):
+    """Publish only canonical closes; journal inflight before each network call.
 
-    RE-AUDIT R4 (2026-10-04). A close is first recorded in closed_trades.json with
-    publication {'telegram': 'pending', 'x': 'pending'}. This announces whatever is still
-    pending FROM THAT DURABLE RECORD and stores each channel's result, so:
-      - a run that crashed after recording a close (position already removed, nothing
-        announced) is completed by the next run instead of the close never being published;
-      - a retry publishes the RECORDED result, never a recomputed one;
-      - X is only retried after a definite rejection, and only if x_posted.log does not
-        already hold the post; an unanswered post ('unknown') is left for a human check.
-    Closes are published whenever X credentials exist — deliberately NOT behind
-    ENABLE_X_AUTOPOST. That switch guards against publishing a bad PICK; a close is the
-    outcome of something already public, and gating it would leave public entries with
-    no published result — the exact asymmetry we forbid. Returns closes touched.
+    An interrupted/unknown send is not automatically retried. X receipts can
+    reconcile it; other uncertain deliveries require a human check. This trades
+    automatic duplication for an explicit unresolved delivery record.
     """
-    todo = PT.pending_publications()
+    done_this_run = set(exclude)
+    todo = [rec for rec in PT.pending_publications()
+            if (rec['ticker'], rec.get('signal_date', rec['entry_date'])) not in done_this_run]
     for rec in todo:
-        tk, ed, xd = rec['ticker'], rec['entry_date'], rec.get('exit_date')
-        entry, exit_px, reason = float(rec['entry_price']), float(rec['exit_price']), rec['exit_reason']
+        tk, key = rec['ticker'], rec.get('signal_date', rec['entry_date'])
+        ed, xd = rec['entry_date'], rec['exit_date']
         pub = rec['publication']
         if dry_run:
-            print(f'  [{tk}] (dry-run) close outbox: telegram={pub.get("telegram")} x={pub.get("x")}')
+            print(f'[{tk}] close outbox: {pub}')
             continue
+        if pub.get('x') in ('inflight', 'unknown'):
+            # Never send twice because a receipt acknowledgement was interrupted.
+            msg = x_post.format_close_for_x(tk, rec['entry_price'], rec['exit_price'], rec['exit_reason'],
+                    entry_date=ed, exit_date=xd, excursion_bounds=rec.get('excursion_bounds'))
+            receipt = x_post.already_posted(msg.splitlines()[0], since=xd)
+            if receipt:
+                pub = PT.set_publication(tk, key, x='posted', x_id=receipt)['publication']
+                checkpoint()
+        if pub.get('telegram') in ('inflight', 'unknown'):
+            print(f'::warning::{tk} Telegram close requires receipt reconciliation; not resent')
         if pub.get('telegram') in PT.RETRYABLE['telegram']:
+            msg = format_close(tk, rec['entry_price'], rec['exit_price'], rec['exit_reason'])
+            msg += '\nCompleted-session paper outcome. ' + rec.get('note', '')
+            if rec.get('split_factor', 1.0) != 1.0:
+                msg += '\nPrices normalized for recorded splits; dividends excluded from price return.'
             n = int(pub.get('tg_attempts', 0)) + 1
-            ok = send_telegram(format_close(tk, entry, exit_px, reason))
-            st = 'sent' if ok else ('failed' if n < MAX_TG_ATTEMPTS else 'gave_up')
-            pub = PT.set_publication(tk, ed, telegram=st, tg_attempts=n)['publication']
-            print(f'  [{tk}] close -> Telegram: {st}')
+            PT.begin_publication(tk, key, 'telegram', n)
+            checkpoint()
+            try:
+                status, message_id = send_telegram_status(msg)
+            except Exception as exc:
+                status, message_id = 'unknown', None
+                print(f'::warning::{tk} Telegram delivery uncertain: {type(exc).__name__}')
+            final = 'sent' if status == 'sent' else (
+                'failed' if status == 'rejected' and n < MAX_TG_ATTEMPTS else
+                'gave_up' if status == 'rejected' else status)
+            pub = PT.set_publication(tk, key, telegram=final, telegram_message_id=message_id)['publication']
+            checkpoint()
         if pub.get('x') in PT.RETRYABLE['x']:
-            msg = x_post.format_close_for_x(tk, entry, exit_px, reason, entry_date=ed, exit_date=xd,
-                                            mae_pct=rec.get('heat_pct'), mfe_pct=rec.get('peak_pct'))
-            n = int(pub.get('x_attempts', 0)) + 1
-            tid = x_post.already_posted(msg.splitlines()[0], since=xd)
-            status = 'posted' if tid else None
-            if status is None:
-                status, tid = x_post.post_to_x_status(msg)
-            if status == 'posted':
-                PT.set_publication(tk, ed, x='posted', x_attempts=n, x_id=tid)
-                print(f'  [{tk}] close -> X: posted')
+            msg = x_post.format_close_for_x(tk, rec['entry_price'], rec['exit_price'], rec['exit_reason'],
+                    entry_date=ed, exit_date=xd, mae_pct=rec.get('heat_pct'), mfe_pct=rec.get('peak_pct'),
+                    excursion_bounds=rec.get('excursion_bounds'),
+                    split_basis=rec.get('price_basis'))
+            if (rec.get('entry_policy') == 'next_regular_open' and
+                    os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() not in ('1', 'true', 'yes')):
+                os.makedirs('x_drafts', exist_ok=True)
+                path = f'x_drafts/{key}_{tk}_CLOSE.txt'
+                from pathlib import Path
+                PT._atomic_write(Path(path), msg)
+                PT.set_publication(tk, key, x='draft', x_draft=path)
+                checkpoint()
+                print(f'[{tk}] X manual mode: close draft saved at {path}')
                 continue
-            os.makedirs('x_drafts', exist_ok=True)
-            path = f'x_drafts/{xd}_{tk}_CLOSE.txt'
-            with open(path, 'w', encoding='utf-8') as fh:
-                fh.write(msg)
-            final = status != 'rejected' or n >= MAX_X_ATTEMPTS
-            st = ('gave_up' if status == 'rejected' else status) if final else 'rejected'
-            PT.set_publication(tk, ed, x=st, x_attempts=n, x_draft=path)
-            print(f'  [{tk}] close -> X: {st} (attempt {n}); draft {path}')
-            # SHOUT (added 2026-09-02). The LCID stop-out on 9/02 failed to post (X API 402
-            # "credits depleted") and nobody knew until a manual audit — a public entry sat
-            # with no published result, the asymmetry we forbid. Alert on the first failure
-            # and when retries end, not on every 15-minute retry.
-            if n == 1 or final:
-                why = {'rejected': 'X rejected it', 'unknown': 'X did not answer — it MAY be live; check before posting',
-                       'not_configured': 'no X credentials'}.get(status, status)
-                tail = (' Will retry automatically.' if not final else
-                        ' No more automatic retries — post the draft by hand.')
-                send_telegram(f'⚠️ {tk} close is NOT confirmed on X ({why}). The public entry has no '
-                              f'public result yet. Draft: {path}.{tail}')
+            n = int(pub.get('x_attempts', 0)) + 1
+            receipt = x_post.already_posted(msg.splitlines()[0], since=xd)
+            if receipt:
+                PT.set_publication(tk, key, x='posted', x_id=receipt)
+                checkpoint()
+                continue
+            PT.begin_publication(tk, key, 'x', n)
+            checkpoint()
+            try:
+                status, receipt = x_post.post_to_x_status(msg)
+            except Exception as exc:
+                status, receipt = 'unknown', None
+                print(f'::warning::{tk} X delivery uncertain: {type(exc).__name__}')
+            final = ('gave_up' if n >= MAX_X_ATTEMPTS else 'rejected') if status == 'rejected' else status
+            fields = {'x': final, 'x_id': receipt}
+            if status != 'posted':
+                os.makedirs('x_drafts', exist_ok=True)
+                path = f'x_drafts/{key}_{tk}_CLOSE.txt'
+                with open(path, 'w', encoding='utf-8') as fh:
+                    fh.write(msg)
+                fields['x_draft'] = path
+                print(f'::warning::{tk} X close {final}; draft: {path}. Unknown sends need reconciliation.')
+            PT.set_publication(tk, key, **fields)
+            checkpoint()
+    for rec in PT.unresolved_publications():
+        print(f'::warning::{rec["ticker"]} unresolved close delivery: {rec["publication"]}')
     return len(todo)
 
 
-def _today_iso() -> str:
-    return dt.date.today().isoformat()
+def _basis(pos, frame):
+    """Normalize frozen entry/levels to Yahoo's current split-rebased OHLC basis."""
+    if not {'Stock Splits', 'Dividends'}.issubset(frame.columns):
+        raise ValueError('Corporate-action columns missing; split basis cannot be established')
+    factor = 1.0
+    actions = []
+    entry_date = dt.date.fromisoformat(pos['entry_date'])
+    for ix, row in frame.iterrows():
+        split = float(row['Stock Splits'])
+        dividend = float(row['Dividends'])
+        if not math.isfinite(split) or not math.isfinite(dividend):
+            raise ValueError('nonfinite corporate action')
+        if split and ix.date() > entry_date:
+            if split <= 0:
+                raise ValueError('invalid split factor')
+            factor *= split
+            actions.append({'date': ix.date().isoformat(), 'split': split})
+        if dividend:
+            actions.append({'date': ix.date().isoformat(), 'dividend': dividend,
+                            'return_treatment': 'excluded_price_only'})
+    original = pos.get('original_entry_price', pos['entry_price'])
+    levels = pos.get('original_levels', {k: pos[k] for k in ('T1', 'T2', 'T3', 'STOP')})
+    if not math.isfinite(factor) or factor <= 0:
+        raise ValueError('Invalid cumulative split factor')
+    if any(not math.isfinite(float(v)) or float(v) <= 0 for v in (original, *levels.values())):
+        raise ValueError('Invalid frozen original price basis')
+    return {**pos, 'original_entry_price': original, 'original_levels': levels,
+            'entry_price': original / factor, **{k: v / factor for k, v in levels.items()},
+            'split_factor': factor, 'quantity_factor': factor, 'corporate_actions': actions,
+            'price_basis': 'split_normalized_price_only',
+            'price_basis_asof': dt.datetime.now(dt.timezone.utc).isoformat()}
 
 
-def check_position(pos: dict, dry_run: bool = False) -> dict | None:
-    """Check one position for TP1/stop hits. Returns close info if closed. NO timeout."""
-    tk = pos['ticker']
-    entry_date = pos['entry_date']
-    entry = pos['entry_price']
-    T1 = pos['T1']
-    STOP = pos['STOP']
-
-    # RE-AUDIT R4: a close already on record (an earlier run recorded it, then failed before
-    # removing the position) is FINISHED from that record. The bars are not walked again:
-    # a later bar can resolve differently and would announce a second, contradicting result.
-    rec = PT.closed_record(tk, entry_date)
-    if rec is not None:
-        print(f'  [{tk}] close already recorded ({rec["exit_reason"]} {rec["exit_date"]}); finishing it')
+def check_position(pos, dry_run=False, asof=None):
+    tk, key = pos['ticker'], pos.get('signal_date', pos['entry_date'])
+    existing = PT.closed_record(tk, key)
+    if existing is not None:
         if not dry_run:
-            PT.close_position(tk, entry_date, float(rec['exit_price']), rec['exit_reason'], rec['exit_date'])
-            publish_pending()
-        return {'closed': True, 'reason': rec['exit_reason'], 'exit_price': rec['exit_price'],
-                'exit_date': rec['exit_date'], 'record': rec, 'resumed': True}
-
-    # Pull data from entry+1 onward
-    e = dt.datetime.strptime(entry_date, '%Y-%m-%d').date()
-    end = dt.date.today() + dt.timedelta(days=1)  # full window entry->today (no time cap)
-    try:
-        # 1-day bars first to find the relevant window; for today's intraday use 5m
-        df = yf.Ticker(tk).history(start=e + dt.timedelta(days=1), end=end, auto_adjust=True, interval='1d')
-    except Exception as ex:
-        print(f'  [{tk}] yfinance error: {ex}')
+            PT.close_position(tk, key, existing['exit_price'], existing['exit_reason'], existing['exit_date'])
+            checkpoint()
+        return {'closed': True, 'reason': existing['exit_reason'], 'exit_price': existing['exit_price'],
+                'exit_date': existing['exit_date'], 'record': existing, 'resumed': True}
+    signal_date = dt.date.fromisoformat(pos.get('signal_date', pos['entry_date']))
+    pending = pos.get('status') == 'PENDING_ENTRY'
+    include_entry = pos.get('entry_policy') == 'next_regular_open'
+    clock = now_eastern(asof)
+    start = next_session(signal_date) if pending else (
+        dt.date.fromisoformat(pos['entry_date']) if include_entry else next_session(pos['entry_date']))
+    expected = sessions_between(start, last_completed_session(clock))
+    if not expected:
         return None
-
-    if df.empty:
-        # No price action yet (e.g., entered today after close)
-        return None
-
-    # Walk day by day; track MAE/MFE; resolve each bar with the SAME rule research uses
-    for idx, row in df.iterrows():
-        date_str = idx.date().isoformat()
-        high = float(row['High'])
-        low = float(row['Low'])
-        opn = float(row['Open'])
-        res = resolve_bar(opn, high, low, T1, STOP)
-        # MAE / MFE from the part of the bar actually HELD (audit F20): on an exit bar,
-        # prices beyond the fill came after it and must not count.
-        lo_h, hi_h = held_extremes(opn, high, low, res)
-        upd = PT.update_mae_mfe(tk, entry_date, intraday_low=lo_h, intraday_high=hi_h, on_date=date_str)
-        if upd:
-            pos = {**pos, 'MAE_pct': upd.get('MAE_pct'), 'MFE_pct': upd.get('MFE_pct')}
-        if res is None:
-            continue
-        reason, exit_price, note = res
-        print(f'  [{tk}] {reason} on {date_str}: O {opn:.2f} H {high:.2f} L {low:.2f} '
-              f'-> exit {exit_price:.2f}' + (f'  [{note}]' if note else ''))
-        if note:
-            print(f'::warning::{tk} {date_str}: {note}')
+    end = clock.date() + dt.timedelta(days=1)
+    frame = yf.Ticker(tk).history(start=start, end=end, interval='1d', auto_adjust=False, actions=True)
+    actions_frame = frame
+    # Validate before activating a queued entry or rewriting any existing state.
+    frame = completed_history(frame, start, clock)
+    if pending:
+        first = frame.index[0].date().isoformat()
+        # Yahoo rebases the historical opening by subsequent splits. Preserve the
+        # original opening basis once, then normalize from it on every retry.
+        temp = {**pos, 'entry_date': first}
+        factor = _basis(temp, actions_frame)['split_factor']
+        opening = float(frame.iloc[0]['Open']) * factor
         if dry_run:
-            return {'closed': True, 'reason': reason, 'exit_price': exit_price,
-                    'exit_date': date_str, 'note': note}
-        canon = PT.close_position(tk, entry_date, exit_price, reason, date_str, exit_note=note)
-        publish_pending()            # announce from the durable record (the close outbox)
-        return {'closed': True, 'reason': canon['exit_reason'], 'exit_price': canon['exit_price'],
-                'exit_date': canon['exit_date'], 'note': note, 'record': canon}
-
-    # NO time-based timeout. A position exits ONLY on TP1 (win) or STOP (loss),
-    # both handled in the day-walk above. If neither fired, it stays open and
-    # keeps tracking MAE/MFE indefinitely until a target or the stop is hit.
-    return None
+            pct = pos['exit_pcts']
+            levels = {field: opening * (1 + pct[name] / 100) for field, name in
+                      {'T1': 'tp1', 'T2': 'tp2', 'T3': 'tp3', 'STOP': 'stop'}.items()}
+            pos = {**pos, 'entry_date': first, 'entry_price': opening,
+                   'original_entry_price': opening, 'original_levels': levels, **levels}
+        else:
+            pos = PT.activate_position(tk, key, first, opening)
+    pos = _basis(pos, actions_frame)
+    if not dry_run:
+        pos = PT.update_position(tk, key, **{k: v for k, v in pos.items() if k not in ('ticker', 'signal_date')})
+    result = walk_bars(frame, pos['entry_price'],
+                       (pos['T1'] / pos['entry_price'] - 1) * 100,
+                       (pos['STOP'] / pos['entry_price'] - 1) * 100)
+    if not dry_run:
+        PT.update_excursions(tk, key, result)
+    if not result['complete']:
+        return None
+    if dry_run:
+        return {'closed': True, 'reason': result['outcome'], **result}
+    canon = PT.close_position(tk, key, result['exit_price'], result['outcome'], result['exit_date'],
+                              exit_note=result['exit_note'])
+    checkpoint()
+    return {'closed': True, 'reason': canon['exit_reason'], 'exit_price': canon['exit_price'],
+            'exit_date': canon['exit_date'], 'record': canon}
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--dry-run', action='store_true', help='check positions but do not close or send')
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dry-run', action='store_true', help='read-only execution preview')
+    args = parser.parse_args()
     load_dotenv()
-
-    # Resume first: announcements a previous run recorded but did not finish (R4).
-    resumed = publish_pending(dry_run=args.dry_run)
-    if resumed:
-        print(f'Close outbox: {resumed} pending announcement(s) processed.')
-
-    positions = PT.list_open()
-    print(f'[{dt.datetime.now().isoformat()}] Monitoring {len(positions)} open position(s)...')
-
-    if not positions:
-        print('  (none)')
-        if resumed and not args.dry_run:
-            try:
-                import sheet_sync
-                sheet_sync.sync_all()
-            except Exception as e:
-                print(f'Sheet sync skipped: {e}')
-        return
-
-    closed_count = 0
-    for pos in positions:
-        result = check_position(pos, dry_run=args.dry_run)
-        if result and result.get('closed'):
-            closed_count += 1
-        else:
-            print(f"  [{pos['ticker']}] still open  MAE={pos.get('MAE_pct',0):+.2f}%  MFE={pos.get('MFE_pct',0):+.2f}%")
-
-    # Push updated MAE/MFE (and any closes) to the Google Sheet. The monitor was
-    # updating open_positions.json every run but NEVER syncing the sheet, so the
-    # sheet's MAE/MFE columns sat at 0 forever (the 2026-06-15 MDB "not tracking"
-    # issue — it WAS tracking, the sheet just never got refreshed).
-    if not args.dry_run:
-        try:
+    with nullcontext() if args.dry_run else portfolio_lock():
+        # Delivery recovery is independent of the market feed. A missing bar for
+        # another holding must not block an outcome already recorded durably.
+        resumed = {(rec['ticker'], rec.get('signal_date', rec['entry_date']))
+                   for rec in PT.pending_publications()}
+        publish_pending(dry_run=args.dry_run)
+        for pos in PT.list_open():
+            result = check_position(pos, dry_run=args.dry_run)
+            print(f"[{pos['ticker']}] {'closed' if result else 'open or pending entry'}")
+        if not args.dry_run:
+            checkpoint()
+        # Definite rejections get at most one retry per record in this run.
+        publish_pending(dry_run=args.dry_run, exclude=resumed)
+        if not args.dry_run:
             import sheet_sync
-            sheet_sync.sync_all()
-            print('Sheet synced (MAE/MFE + open/closed positions).')
-        except Exception as e:
-            print(f'Sheet sync skipped: {e}')
-
-    print(f'\nClosed this run: {closed_count}  |  Still open: {len(positions) - closed_count}')
+            if sheet_sync.sync_all() is False:
+                raise SystemExit('Sheet synchronization incomplete; durable portfolio remains available')
+            if PT.unresolved_publications():
+                raise SystemExit('Close delivery incomplete; reconcile the durable outbox')
 
 
 if __name__ == '__main__':

@@ -14,6 +14,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from state_lock import trading_date
 
 REPO = Path(__file__).resolve().parent
 DB = Path(os.environ.get('SKEW_DB_PATH') or (REPO / 'skew_history.db'))
@@ -25,7 +26,7 @@ MIN_SKEW_CHG = 600         # skew_change_5d must be computed post-warmup
 
 
 def main():
-    date = sys.argv[1] if len(sys.argv) > 1 else dt.date.today().isoformat()
+    date = sys.argv[1] if len(sys.argv) > 1 else trading_date().isoformat()
     if not DB.exists():
         print(f'FAIL {date}: skew_history.db missing')
         return 1
@@ -85,6 +86,8 @@ def main():
                 problems.append(f'archive scan_date is {a.get("scan_date")!r}, expected {date}')
             if not isinstance(a.get('taken_tickers'), list) or not isinstance(a.get('candidates'), list):
                 problems.append('archive is missing taken_tickers/candidates lists')
+            if a.get('outbox') is not None and a.get('delivery', {}).get('complete') is not True:
+                problems.append('decision outbox delivery is incomplete or needs manual reconciliation')
             cands = a.get('candidates') or []
             edge_logged = sum(1 for c in cands if c.get('edge')) if cands else 0
         except Exception as e:

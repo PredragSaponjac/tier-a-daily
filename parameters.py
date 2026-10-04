@@ -14,7 +14,7 @@ _CACHE = None
 def _load():
     global _CACHE
     if _CACHE is None:
-        _CACHE = json.loads(_PARAMS_FILE.read_text())
+        _CACHE = json.loads(_PARAMS_FILE.read_text(encoding='utf-8'))
     return _CACHE
 
 
@@ -56,7 +56,7 @@ def stop_pct() -> float:
     return _load()['exits']['stop_pct']
 
 
-def time_stop_days() -> int:
+def time_stop_days() -> int | None:
     return _load()['exits']['time_stop_days']
 
 

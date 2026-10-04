@@ -6,6 +6,7 @@ Two files:
 """
 import csv
 import json
+import math
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -45,6 +46,13 @@ def _load_open() -> dict:
                                   f'refusing to treat it as an empty book') from e
     if not isinstance(state, dict) or not isinstance(state.get('positions'), list):
         raise PortfolioStateError(f'{OPEN_FILE.name} has an invalid schema; refusing to use it')
+    for p in state['positions']:
+        if not isinstance(p, dict) or not p.get('ticker') or not p.get('entry_date'):
+            raise PortfolioStateError('invalid position identity')
+        for field in ('entry_price', 'T1', 'T2', 'T3', 'STOP'):
+            value = p.get(field)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise PortfolioStateError(f'invalid position {field}')
     return state
 
 
@@ -53,9 +61,20 @@ def _atomic_write(path: Path, text: str):
     complete file or the new complete file, never a truncated one (AUDIT F08: the old
     write_text truncated first, opening a window where a crash left a half file)."""
     import os
-    tmp = path.with_name(path.name + '.tmp')
-    tmp.write_text(text, encoding='utf-8')
-    os.replace(tmp, path)
+    import tempfile
+    path = Path(path)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix=path.name + '.', suffix='.tmp', delete=False) as f:
+            tmp = Path(f.name)
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink()
 
 
 def _save_open(state: dict):
@@ -67,18 +86,37 @@ def list_open() -> list[dict]:
 
 
 def has_position(ticker: str, entry_date: str) -> bool:
-    return any(p['ticker'] == ticker and p['entry_date'] == entry_date for p in list_open())
+    return any(_matches(p, ticker, entry_date) for p in list_open())
 
 
-def add_position(candidate: dict, T1: float, T2: float, T3: float, STOP: float, params_version: str):
-    """Add a new signal to monitored positions. Idempotent on (ticker, entry_date)."""
-    if has_position(candidate['ticker'], candidate['scan_date']):
+def _matches(record, ticker, signal_date):
+    return record.get('ticker') == ticker and record.get('signal_date', record.get('entry_date')) == signal_date
+
+
+def add_position(candidate: dict, T1: float, T2: float, T3: float, STOP: float, params_version: str,
+                 entry_policy: str = 'legacy_close'):
+    """Add a new signal; immutable identity is (ticker, signal_date), even after entry."""
+    reference = candidate['spot_close']
+    if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0
+           for v in (reference, T1, T2, T3, STOP)):
+        raise PortfolioStateError('invalid candidate prices')
+    if not STOP < reference < T1 <= T2 <= T3:
+        raise PortfolioStateError('invalid candidate exit levels')
+    datetime.fromisoformat(candidate['scan_date'])
+    if has_position(candidate['ticker'], candidate['scan_date']) or closed_record(candidate['ticker'], candidate['scan_date']):
         return False
     state = _load_open()
     f = candidate.get('filter', {})
     raw = f.get('raw', {})
     state['positions'].append({
         'ticker': candidate['ticker'],
+        'trade_id': f"{candidate['ticker']}:{candidate['scan_date']}",
+        'signal_date': candidate['scan_date'],
+        'entry_policy': entry_policy,
+        'status': 'PENDING_ENTRY' if entry_policy == 'next_regular_open' else 'OPEN',
+        'entry_reference_price': candidate['spot_close'],
+        'exit_pcts': {key: (value / candidate['spot_close'] - 1) * 100
+                      for key, value in {'tp1': T1, 'tp2': T2, 'tp3': T3, 'stop': STOP}.items()},
         'entry_date': candidate['scan_date'],
         'entry_price': candidate['spot_close'],
         'T1': T1, 'T2': T2, 'T3': T3, 'STOP': STOP,
@@ -99,6 +137,38 @@ def add_position(candidate: dict, T1: float, T2: float, T3: float, STOP: float, 
     })
     _save_open(state)
     return True
+
+
+def update_position(ticker, signal_date, **updates):
+    state = _load_open()
+    for p in state['positions']:
+        if _matches(p, ticker, signal_date):
+            p.update(updates)
+            _save_open(state)
+            return p
+    raise PortfolioStateError(f'no open position for {ticker}:{signal_date}')
+
+
+def activate_position(ticker, signal_date, session_date, opening):
+    if not math.isfinite(opening) or opening <= 0:
+        raise PortfolioStateError('invalid entry opening price')
+    p = next(p for p in list_open() if _matches(p, ticker, signal_date))
+    if p.get('status') != 'PENDING_ENTRY':
+        return p
+    levels = {field: opening * (1 + p['exit_pcts'][key] / 100)
+              for field, key in {'T1': 'tp1', 'T2': 'tp2', 'T3': 'tp3', 'STOP': 'stop'}.items()}
+    return update_position(ticker, signal_date, status='OPEN', entry_date=session_date,
+                           entry_price=opening, original_entry_price=opening,
+                           original_levels=levels.copy(), **levels)
+
+
+def update_excursions(ticker, signal_date, result):
+    """Replace a recomputed completed-session path, preserving uncertainty explicitly."""
+    return update_position(ticker, signal_date, MAE_pct=result['mae_pct'], MFE_pct=result['mfe_pct'],
+                           MAE_date=result['mae_date'], MFE_date=result['mfe_date'],
+                           excursion_bounds=result['excursion_bounds'],
+                           execution_method=result['execution_method'],
+                           observations_asof=datetime.utcnow().isoformat() + 'Z')
 
 
 def update_mae_mfe(ticker: str, entry_date: str, intraday_low: float, intraday_high: float, on_date: str) -> dict | None:
@@ -144,9 +214,21 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
     """
     state = _load_open()
     closed = next((p for p in state['positions']
-                   if p['ticker'] == ticker and p['entry_date'] == entry_date), None)
+                   if _matches(p, ticker, entry_date)), None)
     if closed is None:
-        return None
+        return closed_record(ticker, entry_date)
+    existing = closed_record(ticker, entry_date)
+    if existing is not None:
+        # A crash after durable append cannot make the next invocation's proposed
+        # exit authoritative, even if its price/date is malformed or unavailable.
+        state['positions'] = [p for p in state['positions'] if not _matches(p, ticker, entry_date)]
+        _save_open(state)
+        return existing
+    if not math.isfinite(exit_price) or exit_price <= 0:
+        raise PortfolioStateError('invalid exit price')
+
+    # The signal date is the immutable identity; activation may change the fill date.
+    entry_date = closed['entry_date']
 
     # Compute days-to-event
     e = datetime.fromisoformat(entry_date).date()
@@ -162,6 +244,9 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
     time_to_MAE = None
     if closed.get('MAE_date'):
         time_to_MAE = (datetime.fromisoformat(closed['MAE_date']).date() - e).days
+    if not (closed.get('excursion_bounds') or {}).get('exact', False):
+        # Outer-bound bar dates need not be the actual held extrema dates.
+        time_to_MFE = time_to_MAE = None
 
     realized = (exit_price / closed['entry_price'] - 1) * 100
 
@@ -200,7 +285,7 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
 
     # (2) Remove from the open book ONLY now that the outcome is durably recorded.
     state['positions'] = [p for p in state['positions']
-                          if not (p['ticker'] == ticker and p['entry_date'] == entry_date)]
+                          if not _matches(p, ticker, closed.get('signal_date', entry_date))]
     _save_open(state)
 
     # (3) track_record.csv is a gitignored research export, never the record of truth.
@@ -229,13 +314,15 @@ def _read_closed() -> list:
         raise PortfolioStateError(f'{CLOSED_FILE_NAME} unreadable ({e})') from e
     if not isinstance(trades, list):
         raise PortfolioStateError(f'{CLOSED_FILE_NAME} is not a list')
+    if any(not isinstance(t, dict) or not t.get('ticker') or not t.get('entry_date') for t in trades):
+        raise PortfolioStateError(f'{CLOSED_FILE_NAME} contains an invalid trade')
     return trades
 
 
 def closed_record(ticker: str, entry_date: str) -> dict | None:
     """The durable close for this trade, if one was recorded."""
     return next((t for t in _read_closed()
-                 if t.get('ticker') == ticker and t.get('entry_date') == entry_date), None)
+                 if _matches(t, ticker, entry_date)), None)
 
 
 # THE CLOSE OUTBOX (re-audit R4, 2026-10-04). A close is recorded with
@@ -247,18 +334,30 @@ RETRYABLE = {'telegram': ('pending', 'failed'), 'x': ('pending', 'rejected')}
 def pending_publications() -> list:
     """Closed records whose announcement has not completed on some channel."""
     return [t for t in _read_closed() if isinstance(t.get('publication'), dict)
-            and any(t['publication'].get(ch) in st for ch, st in RETRYABLE.items())]
+            and any(t['publication'].get(ch) in (*st, 'inflight', 'unknown') for ch, st in RETRYABLE.items())]
+
+
+def unresolved_publications():
+    return [t for t in _read_closed() if isinstance(t.get('publication'), dict)
+            and (t['publication'].get('telegram') != 'sent' or t['publication'].get('x') not in ('posted', 'draft'))]
 
 
 def set_publication(ticker: str, entry_date: str, **fields) -> dict:
     """Atomically record a channel result on one closed record. Returns the record."""
     trades = _read_closed()
     for t in trades:
-        if t.get('ticker') == ticker and t.get('entry_date') == entry_date:
+        if _matches(t, ticker, entry_date):
             t.setdefault('publication', {}).update(fields)
             _atomic_write(ROOT / CLOSED_FILE_NAME, json.dumps(trades, indent=2, ensure_ascii=False))
             return t
     raise PortfolioStateError(f'no closed record for {ticker} {entry_date}')
+
+
+def begin_publication(ticker, signal_date, channel, attempt):
+    """Persist an uncertain/inflight attempt before transport; never blindly replay it."""
+    counter = 'tg_attempts' if channel == 'telegram' else 'x_attempts'
+    return set_publication(ticker, signal_date, **{channel: 'inflight', counter: attempt,
+                           f'{channel}_attempted_at': datetime.utcnow().isoformat() + 'Z'})
 
 
 def _setup_note(ticker: str, entry_date: str, closed: dict) -> str:
@@ -321,42 +420,28 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: 
     # AUDIT F07: an unreadable file used to print and RETURN, so close_position "succeeded"
     # with no durable record. _read_closed raises instead — the caller keeps the position open.
     trades = _read_closed()
-    existing = next((t for t in trades if t.get('ticker') == row['ticker']
-                     and t.get('entry_date') == row['entry_date']), None)
+    existing = next((t for t in trades if _matches(t, row['ticker'], closed.get('signal_date', row['entry_date']))), None)
     if existing is not None:
         return existing, False
 
     reason = row['exit_reason']
     realized = row['realized_return_pct']
 
-    # Fill the day-columns from real price action, else the Sheet renders a WIN as
-    # "no" in the conservative column (the NNE 2026-06-15 bug: a +10% winner showed
-    # "no (peak +14.4%)"). Best-effort — a data hiccup must never block the record.
+    # No network re-pull during persistence: post-exit closes/highs cannot establish
+    # held-period day columns. Unavailable facts stay null.
     conserv_day = first_green = also = None
-    try:
-        import yfinance as yf
-        e_px = row['entry_price']
-        e_dt = datetime.fromisoformat(row['entry_date']).date()
-        df = yf.Ticker(row['ticker']).history(
-            start=(e_dt + timedelta(days=1)).isoformat(),
-            end=(datetime.fromisoformat(row['exit_date']).date() + timedelta(days=1)).isoformat(),
-            interval='1d', auto_adjust=True)
-        for i, (ts, r) in enumerate(df.iterrows(), start=1):
-            d = (ts.date() - e_dt).days
-            if conserv_day is None and float(r['High']) >= e_px * 1.075:
-                conserv_day = d
-            if first_green is None and float(r['Close']) > e_px:
-                first_green = d
-        peak = float(df['High'].max()) if len(df) else None
-        if peak and closed.get('T3') and peak >= closed['T3']:
-            also = f"TP3 +{(closed['T3']/e_px-1)*100:.0f}%"
-        elif peak and closed.get('T2') and peak >= closed['T2']:
-            also = f"TP2 +{(closed['T2']/e_px-1)*100:.0f}%"
-    except Exception as e:
-        print(f'  [record] day-columns not computed ({e}) — record still written')
 
     rec = {
         'ticker': row['ticker'],
+        'trade_id': closed.get('trade_id', f"{row['ticker']}:{row['entry_date']}"),
+        'signal_date': closed.get('signal_date', row['entry_date']),
+        'entry_policy': closed.get('entry_policy', 'legacy_close'),
+        'execution_method': closed.get('execution_method', 'legacy_unknown'),
+        'excursion_bounds': closed.get('excursion_bounds'),
+        'price_basis': closed.get('price_basis', 'legacy_unverified'),
+        'original_entry_price': closed.get('original_entry_price', row['entry_price']),
+        'corporate_actions': closed.get('corporate_actions', []),
+        'split_factor': closed.get('split_factor', 1.0),
         'entry_date': row['entry_date'],
         'entry_price': row['entry_price'],
         'outcome': 'WIN' if realized > 0 else 'LOSS',
@@ -371,7 +456,7 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: 
         'peak_day': row.get('time_to_MFE_days'),
         'days_to_mfe': row.get('time_to_MFE_days'),
         'first_green_day': first_green,
-        'setup': _setup_note(row['ticker'], row['entry_date'], closed),
+        'setup': _setup_note(row['ticker'], closed.get('signal_date', row['entry_date']), closed),
         'src': 'monitor',
         'computed_on': datetime.utcnow().date().isoformat(),
         # AUDIT F02/F03: gap fills and ambiguous bars are recorded on the trade itself.

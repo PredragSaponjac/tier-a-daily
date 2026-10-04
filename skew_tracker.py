@@ -31,6 +31,7 @@ import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from market_time import now_eastern
 
 # Import weeklies universe if available
 try:
@@ -94,7 +95,7 @@ DEFAULT_TICKERS = [
     "SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN",
     "META", "GOOGL", "AMD", "NFLX", "CRM", "COIN", "SHOP",
 ]
-SKEW_LOOKBACK_DAYS = 5       # 5-day change in skew
+SKEW_LOOKBACK_DAYS = 9       # nine SESSION intervals; legacy *_5d columns are aliases
 SIGMA_LOOKBACK_DAYS = 5      # 1-week sigma move (5 trading days)
 HV_LOOKBACK_DAYS = 20        # 20-day realized vol for sigma calc
 DTE_MIN = 20                 # options chain DTE window
@@ -118,7 +119,7 @@ def fetch_finra_short_volume(ticker: str, date_str: str = None) -> Tuple[Optiona
     Returns (short_volume, total_volume) or (None, None) if unavailable.
     """
     if date_str is None:
-        date_str = dt.date.today().isoformat()
+        date_str = now_eastern().date().isoformat()
 
     # Convert date to YYYYMMDD format for FINRA URL
     try:
@@ -423,6 +424,9 @@ def init_db(db_path: str = DB_PATH):
         ("skew_pctile_6m", "REAL"), ("atm_iv_pctile_6m", "REAL"),
         ("iv_hv_ratio_pctile_6m", "REAL"), ("realized_move_pctile_6m", "REAL"),
         ("notes_json", "TEXT"),
+        ("screen_version", "TEXT"), ("window_sessions", "INTEGER"),
+        ("sigma_time_basis", "TEXT"), ("quote_asof", "TEXT"),
+        ("observed_at", "TEXT"), ("quote_source", "TEXT"),
         ("fwd_1d_return", "REAL"), ("fwd_3d_return", "REAL"),
         ("fwd_5d_return", "REAL"), ("fwd_10d_return", "REAL"), ("fwd_20d_return", "REAL"),
         ("fwd_1d_date", "TEXT"), ("fwd_3d_date", "TEXT"),
@@ -556,6 +560,11 @@ def save_candidate(conn: sqlite3.Connection, ticker: str, scan_date: str,
         sector_ranks.get("sector_skew_rank", 0) if sector_ranks else 0,
         sector_ranks.get("sector_iv_rank", 0) if sector_ranks else 0,
     ))
+    conn.execute("""UPDATE candidate_log SET screen_version=?,window_sessions=?,sigma_time_basis=?,
+                 quote_asof=?,observed_at=?,quote_source=? WHERE ticker=? AND scan_date=?""",
+                 ((div or {}).get('screen_version'), (div or {}).get('window_sessions'),
+                  (div or {}).get('sigma_time_basis'), snap.get('quote_asof'),
+                  snap.get('observed_at'), snap.get('quote_source'), ticker, scan_date))
     conn.commit()
 
 
@@ -721,7 +730,7 @@ def log_signal(conn: sqlite3.Connection, ticker: str, div: Dict, snap: Dict,
                walls: Optional[Dict], sector: str, industry: str,
                sector_skew_rank: float = 0, sector_iv_rank: float = 0):
     """Log a trade signal with all metrics for forward return tracking."""
-    today_str = dt.date.today().isoformat()
+    today_str = now_eastern().date().isoformat()
 
     # Determine conviction from signal strength
     conviction = "LOW"
@@ -771,7 +780,7 @@ def update_forward_returns(conn: sqlite3.Connection):
     Runs each scan session. Checks which signals are missing forward returns
     and fills them in using yfinance price data.
     """
-    today = dt.date.today()
+    today = now_eastern().date()
     # Find signals that need updating (have NULL forward returns)
     rows = conn.execute("""
         SELECT id, ticker, signal_date, spot_at_signal, direction
@@ -1117,7 +1126,9 @@ def compute_skew_snapshot(ticker: str) -> Optional[Dict]:
         if not expirations:
             return None
 
-        today = dt.date.today()
+        from market_time import now_eastern
+        today = now_eastern().date()
+        observed_at = dt.datetime.now(dt.timezone.utc).isoformat()
         best_exp = None
         best_dte = None
         for exp_str in expirations:
@@ -1408,6 +1419,8 @@ def compute_skew_snapshot(ticker: str) -> Optional[Dict]:
 
         return {
             "spot_close": round(price, 2),
+            "observed_at": observed_at, "quote_asof": None,
+            "quote_source": "Yahoo cached last price; executable entry is next session open",
             "atm_iv": round(atm_iv, 2),
             "put_25d_iv": round(put_25d_iv, 2),
             "call_25d_iv": round(call_25d_iv, 2),
@@ -1529,7 +1542,7 @@ def compute_ticker_vix(ticker: str) -> Optional[Dict]:
         if not expirations:
             return None
 
-        today = dt.date.today()
+        today = now_eastern().date()
         now_minutes = dt.datetime.now()
 
         # Find near-term (>7d) and next-term that bracket 30 days
@@ -1897,9 +1910,9 @@ def analyze_walls(history: pd.DataFrame) -> Optional[Dict]:
 # ---------------------------------------------------------------------------
 # Divergence detection
 # ---------------------------------------------------------------------------
-def compute_divergence(history: pd.DataFrame) -> Optional[Dict]:
+def compute_divergence(history: pd.DataFrame, lookback_sessions: int = None) -> Optional[Dict]:
     """
-    Compare 5-day skew change vs 1-week sigma move in spot.
+    Compare the explicit nine-session window with session-normalized volatility.
 
     Sigma move = (price change %) / (daily HV * sqrt(days))
     Skew change = current skew - skew N days ago
@@ -1913,28 +1926,34 @@ def compute_divergence(history: pd.DataFrame) -> Optional[Dict]:
     if len(history) < 2:
         return None
 
-    # Need enough DISTINCT dates for a genuine multi-day change.
-    #
-    # MIN-WINDOW GUARD (added 2026-07-22). This used to require only 2 distinct dates,
-    # so while rebuilding history after the 6/27-7/17 outage it computed a ONE-day skew
-    # change and stored it in the field `skew_change_5d` — which Tier A then tested as
-    # `skew_change_5d <= -7`, i.e. a 5-day capitulation. On 2026-07-21, with just 2 fresh
-    # days in the DB, that surfaced 7 "Tier A" candidates off 1-day noise. SKEW_LOOKBACK_DAYS
-    # is 5, so a real 5-day change needs 6 distinct dates (5 intervals). Below that we
-    # return None: the metric is NULL, and the Tier A query (which requires
-    # skew_change_5d <= -5 NOT NULL) excludes the candidate. No signal beats a fake one.
-    unique_dates = history["date"].nunique()
-    if unique_dates < SKEW_LOOKBACK_DAYS + 1:
+    from market_time import sessions_between
+    window = SKEW_LOOKBACK_DAYS if lookback_sessions is None else int(lookback_sessions)
+    if window < 1:
+        raise ValueError('lookback_sessions must be positive')
+    history = history.sort_values('date').drop_duplicates('date', keep='last').tail(window + 1)
+    if len(history) != window + 1:
         return None
-
-    current = history.iloc[-1]
-    oldest = history.iloc[0]
+    observed = [pd.Timestamp(x).date() for x in history['date']]
+    if observed != sessions_between(observed[0], observed[-1]):
+        return None  # missing sessions may not silently lengthen the screen
+    current, oldest = history.iloc[-1], history.iloc[0]
+    required = ('spot_close', 'skew', 'atm_iv', 'hv_10d')
+    try:
+        endpoints = history[['spot_close', 'skew']].to_numpy(dtype=float)
+        valid = (np.isfinite(endpoints).all() and (endpoints[:, 0] > 0).all()
+                 and all(np.isfinite(float(current[k])) for k in required))
+    except (TypeError, ValueError):
+        return None
+    if not valid:
+        return None
+    if current['atm_iv'] <= 0 or current['hv_10d'] <= 0:
+        return None
 
     # Spot return over the window
     if oldest["spot_close"] <= 0:
         return None
     spot_return_pct = (current["spot_close"] - oldest["spot_close"]) / oldest["spot_close"] * 100
-    n_days = max((current["date"] - oldest["date"]).days, 1)
+    n_days = window  # annualization uses 252 trading sessions, not calendar days
 
     # HV-normalized sigma (backward-looking: was this move big vs recent history?)
     hv_daily = current["hv_10d"] / np.sqrt(252) if current["hv_10d"] > 0 else 1.0
@@ -2006,6 +2025,8 @@ def compute_divergence(history: pd.DataFrame) -> Optional[Dict]:
 
     return {
         "spot_return_pct": round(spot_return_pct, 2),
+        "window_sessions": window, "screen_version": "nine-session-v2" if window == 9 else f"session-v2-{window}",
+        "sigma_time_basis": "trading_sessions",
         "sigma_hv": round(sigma_hv, 2),
         "sigma_iv": round(sigma_iv, 2),
         "sigma_move": round(sigma_move, 2),
@@ -2140,7 +2161,7 @@ def run_sonnet_analysis(tradeable_tickers: List, wall_results: Dict,
     if not data_lines:
         return None
 
-    user_msg = f"""Analyze these skew/vol divergence signals from today's scan ({dt.date.today().isoformat()}).
+    user_msg = f"""Analyze these skew/vol divergence signals from today's scan ({now_eastern().date().isoformat()}).
 
 Rank the trade candidates from best to worst. For each one, give me:
 1. Thesis (2-3 sentences — what the vol surface is telling you)
@@ -2186,8 +2207,12 @@ DATA:
 # Main
 # ---------------------------------------------------------------------------
 def run_scan(tickers: List[str], lookback: int = SKEW_LOOKBACK_DAYS, use_ai: bool = True):
+    from market_time import now_eastern, is_session
+    today_str = now_eastern().date().isoformat()
+    if not is_session(today_str):
+        print('No regular market session today; scan skipped.')
+        return
     conn = init_db()
-    today_str = dt.date.today().isoformat()
 
     print(f"\n{'='*90}")
     print(f"  SKEW vs SPOT DIVERGENCE TRACKER  |  {today_str}  |  {len(tickers)} tickers")
@@ -2264,12 +2289,12 @@ def run_scan(tickers: List[str], lookback: int = SKEW_LOOKBACK_DAYS, use_ai: boo
     wall_results = {}
     candidate_count = 0
     for ticker in tickers:
-        history = get_history(conn, ticker, days=lookback + 5)
+        history = get_history(conn, ticker, days=lookback + 1)
 
         div = None
         walls_for_ticker = None
         if len(history) >= 2:
-            div = compute_divergence(history)
+            div = compute_divergence(history, lookback_sessions=lookback)
             if div:
                 results.append((ticker, div))
 
@@ -2359,7 +2384,7 @@ def run_scan(tickers: List[str], lookback: int = SKEW_LOOKBACK_DAYS, use_ai: boo
 
             print(f"\n  --- {ticker} | {sig_display} | {sector} / {industry} ---")
             print(f"  Spot: ${snap.get('spot_close', 0):.2f}  |  "
-                  f"5d return: {div['spot_return_pct']:+.2f}%  |  "
+                  f"9-session return: {div['spot_return_pct']:+.2f}%  |  "
                   f"σ(IV): {div['sigma_iv']:+.2f}  |  "
                   f"Skew: {div['skew_now']:+.1f} (was {div['skew_then']:+.1f}, Δ{div['skew_change']:+.1f})")
             pc = snap.get('pc_ratio', 0)
@@ -2412,7 +2437,7 @@ def run_scan(tickers: List[str], lookback: int = SKEW_LOOKBACK_DAYS, use_ai: boo
         if not has_multi_day:
             print("  Day 1 — building baseline. Divergence signals start after 2+ days of data.")
         else:
-            print("  No skew/spot divergences — skew is confirming the spot move across the board.")
+            print("  No skew/spot session divergences — skew is confirming the spot move across the board.")
     print(f"{'='*90}\n")
 
     # Step 3: AI Analyst — only runs when there are tradeable setups or wall signals

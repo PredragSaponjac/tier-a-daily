@@ -1,0 +1,87 @@
+Tier A Daily audit remediation - 2026-10-04
+
+Reviewed baseline: Claude remediation commit 6f3fc34. Its useful fixes are
+preserved or superseded. This repair adds a prospective v2 execution contract;
+it does not rewrite historical trades or certify a profitable trading strategy.
+
+Original audit findings
+
+F01: Nine consecutive trading-session intervals, ten observations, matching
+     session sigma normalization and explicit producer metadata. Missing or
+     invalid history cannot silently become a different lookback.
+F02/F03: Monitor, path labels and legacy replay engines share completed-session
+     OHLC resolution, flagged conservative dual-touch stops and gap-open stops.
+     No live timeout; observation cutoffs censor rather than fabricate sales.
+F04: Cached scan quotes are reference inputs with observed-at/source metadata;
+     quote-as-of remains explicitly unknown. New paper entries use the actual
+     next regular-session opening bar, rather than assuming an executable close.
+F05: Raw OHLC and explicit actions use one split basis. Frozen entry/levels are
+     normalized from originals, preventing repeated split adjustment. Returns
+     are price-only; dividends are recorded separately.
+F06: Both take-all and top-only modes obey the cap. Pending entries and
+     undelivered reservations consume capacity. Featured names are admitted names.
+F07/F08: Strict state reads, atomic writes, stable identities and a canonical
+     durable close precede removal/publication. Conflicting retries reuse the
+     canonical outcome, including recovery after interrupted open-book removal.
+F09/F10: Verified versioned backups, stale-generation checks and a post-upload
+     rival check preserve prior copies. These are not atomic server CAS. Shared
+     writer queues remain required. Long DB jobs and short portfolio/Git jobs
+     are separate; refresh/push errors block progression. Local writers lock too.
+F11: Decisions and inflight states reach required checkpoints before transport.
+     Ambiguous results require receipt reconciliation. Completion markers bind
+     both stored DB generation and original archived decision/run identity.
+F12: Precision/Boolean repairs retained; opposite-sign speed halves cannot count
+     as stable agreement. Weekly statistics cannot automatically promote a rule.
+F13: Full-peer residual algorithm retained and used in new versioned benchmark
+     tables. Legacy columns are preserved, excluded from the active benchmark
+     report and not represented as corrected production evidence.
+F14: Landmark risk sets include paths alive at the landmark, including censored
+     paths. Later outcomes cannot decide initial inclusion. Missing OI is unknown.
+F15: Missing earnings, incomplete OI and missing/noisy chain history block new
+     admission. Invalid prices, sessions, actions and producer versions fail loud.
+F16: Dated preview reads the recorded archive without current provider queries.
+     Missing as-of evidence fails. Historical dates cannot create new live entries;
+     explicit outbox resume delivers only an already saved decision.
+F17: Retired unsupported S4 remains retired. The new protocol freezes the family
+     of 28 planned tests and one descriptive checkpoint before prospective data.
+F18: Full candidates, typed features, parameter snapshot/hash, quote provenance,
+     portfolio context, exact message bodies and immutable runs/events retained.
+F19: No-entry notification failures, required channel/Sheet failures, unknown
+     sends and weekly reporting failures produce a failed/incomplete run.
+     Failure artifacts, exact-generation heartbeat and empty-book close recovery
+     retain evidence and expose unresolved work.
+F20: Daily exit-bar excursion timing is unknowable; reports show bounds. Legacy
+     manual calculations exclude entry-before-holding and post-exit bars.
+     Calendar-day benchmarks are separate from executable session-based paths.
+F21: OPEN paths remain censored, never realized portfolio wins/losses. Shadows
+     use a common live-risk denominator and raw percentage return. Completed
+     versioned labels require all shadows; historical versions are not pooled.
+
+Follow-up findings R1-R9
+
+R1 execution -> F02/F03/F04/F05; R2 delivery and concurrent writers -> F07-F11;
+R3 false speed stability -> F12; R4 conflicting close publication -> F07;
+R5 excursion bounds -> F20; R6 failed delivery completion -> F19;
+R7 immutable provenance -> F18; R8 censored landmark inclusion -> F14;
+R9 mixed versions/coverage -> F15/F21 and frozen source/input hashes.
+
+Verification performed offline
+
+89 regression tests passed: admission/reconciliation, execution/recovery,
+research/coverage and operations/storage/workflows. Preflight passed 48 offline
+source/configuration/workflow checks. Workflow YAML and embedded shell/Python
+parse without execution. Historical open/closed/manual records and signal
+archives match the baseline. Temporary old-release integration preserved all
+50 legacy paths; the new cohort had 0/0 coverage and 16 INSUFFICIENT hypotheses.
+Provider, transport and release operations in tests use mocks/temp copies.
+
+Operational limits and deployment work
+
+No broker orders are placed. Completed-bar monitoring does not protect an actual
+intraday holding, reconstruct intraday touch order or prove transaction-cost/net
+portfolio edge. No historical labels were fabricated to seed the new cohort.
+The historical exposed Telegram token still needs BotFather revocation/rotation
+and secret replacement. Code cannot certify external revocation. Remote rollout
+and first scheduled provider/snapshot/delivery checks are not performed by this
+local commit. Preserve the frozen protocol; later research-engine changes need
+a separately documented future cohort rather than editing the active lock.

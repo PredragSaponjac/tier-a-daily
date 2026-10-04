@@ -17,6 +17,7 @@ CLI:
 """
 import json
 import os
+from state_lock import portfolio_lock, checkpoint
 
 HERE = os.path.dirname(__file__)
 OPEN_FILE = os.path.join(HERE, 'open_trades.json')
@@ -31,8 +32,9 @@ def _load(path):
 
 
 def _save(path, data):
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
+    from pathlib import Path
+    from position_tracker import _atomic_write
+    _atomic_write(Path(path), json.dumps(data, indent=2))
 
 
 def get_open():
@@ -43,7 +45,7 @@ def get_closed():
     return _load(CLOSED_FILE)
 
 
-def open_trade(ticker, entry_date, entry_price, t1=None, t2=None, t3=None,
+def _open_trade(ticker, entry_date, entry_price, t1=None, t2=None, t3=None,
                stop=None, setup='', note=''):
     opens = get_open()
     if any(t['ticker'] == ticker and t.get('status') == 'OPEN' for t in opens):
@@ -61,36 +63,64 @@ def open_trade(ticker, entry_date, entry_price, t1=None, t2=None, t3=None,
     print(f'[manual] OPENED {ticker} @ ${float(entry_price):.2f} ({entry_date})')
 
 
-def close_trade(ticker, exit_date, exit_price, outcome, reason=''):
-    """Move an OPEN trade to closed_trades.json, computing heat/peak while fresh."""
+def _close_trade(ticker, exit_date, exit_price, outcome, reason=''):
+    """Persist the canonical manual close before removing it from the open book."""
     import excursions
     opens = get_open()
     match = next((t for t in opens if t['ticker'] == ticker and t.get('status') == 'OPEN'), None)
     if match is None:
         print(f'[manual] no OPEN {ticker} found — pass entry via --open first')
         return
-    exc = excursions.compute_excursion(ticker, match['entry_date'], match['entry_price'],
-                                       exit_date=exit_date)      # held period only (R5)
-    if exc is None:
-        print(f'[manual] WARNING: no intraday for {ticker} (aged out?) — heat/peak blank')
-        exc = {'heat_pct': None, 'peak_pct': None, 'peak_day': None, 'first_green_day': None, 'src': 'none'}
-    result_pct = round((float(exit_price) / match['entry_price'] - 1) * 100, 1)
     closed = get_closed()
-    closed.append({
+    existing = next((t for t in closed if t['ticker'] == ticker and t['entry_date'] == match['entry_date']), None)
+    if existing is not None:
+        _save(OPEN_FILE, [t for t in opens if t is not match])
+        print(f'[manual] {ticker} already closed; finished removing its open entry')
+        return existing
+    exc = excursions.compute_excursion(ticker, match['entry_date'], match['entry_price'], exit_date, float(exit_price))
+    if exc is None:
+        print(f'[manual] WARNING: held-period daily bounds unavailable for {ticker}')
+        exc = {'heat_pct': None, 'peak_pct': None, 'peak_day': None, 'first_green_day': None, 'src': 'none'}
+    normalized_entry = exc.get('normalized_entry_price', match['entry_price'])
+    normalized_exit = exc.get('normalized_exit_price', float(exit_price))
+    result_pct = round((normalized_exit / normalized_entry - 1) * 100, 1)
+    factor = exc.get('quantity_factor', 1.0)
+    rec = {
         'ticker': ticker, 'entry_date': match['entry_date'],
-        'entry_price': match['entry_price'], 'outcome': outcome.upper(),
-        'exit_date': exit_date, 'exit_price': float(exit_price),
+        'entry_price': normalized_entry, 'original_entry_price': match['entry_price'],
+        'outcome': outcome.upper(),
+        'exit_date': exit_date, 'exit_price': normalized_exit,
         'result_pct': result_pct, 'exit_reason': reason,
-        'T1': match.get('T1'), 'T2': match.get('T2'), 'T3': match.get('T3'),
-        'stop': match.get('stop'), 'setup': match.get('setup', ''),
+        'T1': match.get('T1') / factor if match.get('T1') else None,
+        'T2': match.get('T2') / factor if match.get('T2') else None,
+        'T3': match.get('T3') / factor if match.get('T3') else None,
+        'stop': match.get('stop') / factor if match.get('stop') else None,
+        'setup': match.get('setup', ''),
         **exc, 'computed_on': exit_date, 'note': match.get('note', ''),
-    })
+    }
+    closed.append(rec)
     closed.sort(key=lambda t: t['entry_date'])
     _save(CLOSED_FILE, closed)
+    checkpoint(paths=('closed_trades.json',))
     opens = [t for t in opens if not (t['ticker'] == ticker and t.get('status') == 'OPEN')]
     _save(OPEN_FILE, opens)
     print(f'[manual] CLOSED {ticker} @ ${float(exit_price):.2f} ({reason}) = {result_pct:+.1f}% | '
           f'heat {exc["heat_pct"]}% peak {exc["peak_pct"]}%')
+    return rec
+
+
+def open_trade(*args, **kwargs):
+    with portfolio_lock():
+        result = _open_trade(*args, **kwargs)
+        checkpoint(paths=('open_trades.json',))
+        return result
+
+
+def close_trade(*args, **kwargs):
+    with portfolio_lock():
+        result = _close_trade(*args, **kwargs)
+        checkpoint(paths=('closed_trades.json', 'open_trades.json'))
+        return result
 
 
 if __name__ == '__main__':

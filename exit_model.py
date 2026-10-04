@@ -1,95 +1,53 @@
-"""Rule-based exit model — daily High/Low backtest of each trade.
+"""Independent target shadows using the shared completed-session paper engine.
 
-Standardized exit = TP1 (+10%): the day the daily HIGH first tags +10%, the
-trade is marked closed at TP1. We also record:
-  - whether it later tagged TP2 (+11%) / TP3 (+20%)  -> upside left on the table
-  - a CONSERVATIVE +7.5% exit (75% of TP1) -> catches trades that stall just short
-  - the STOP (-7%): if the daily LOW hits it BEFORE any target, the trade is a loss
-
-Scanning starts the trading day AFTER entry (so an entry-day pre-entry high never
-counts) and runs the 10-day max-hold window. Day counts are trading days from entry.
-
-Daily data is always available (no 60-day limit), but we still store the computed
-fields in closed_trades.json so the sheet renders instantly without re-pulling.
-
-CLI:  python exit_model.py AAPL 2026-05-01 100.00
+The baseline outcome always uses TP1; smaller/larger targets are separate shadow
+strategies. A finite observation window is right-censored, never an expiry sale.
 """
-from datetime import datetime, timedelta
+import datetime as dt
+from exits import completed_history, walk_bars, split_factor
+from market_time import now_eastern, next_session
 
 TP1, TP2, TP3, CONSERV, STOP = 10.0, 11.0, 20.0, 7.5, -7.0
-WINDOW_DAYS = 16  # ~10-11 trading days = the 10-day max hold
+WINDOW_DAYS = None
 
 
-def model_exits(ticker, entry_date, entry_price, window_days=WINDOW_DAYS):
-    """Return dict of exit-model fields, or None if no price data."""
-    import yfinance as yf
+def model_exits(ticker, entry_date, entry_price, window_days=None, asof=None, entry_policy='legacy_close'):
     import pandas as pd
-    e = datetime.fromisoformat(entry_date[:10])
-    start = (e + timedelta(days=1)).strftime('%Y-%m-%d')   # day AFTER entry
-    end = (e + timedelta(days=window_days)).strftime('%Y-%m-%d')
-    try:
-        df = yf.download(ticker, start=start, end=end, interval='1d',
-                         progress=False, auto_adjust=False)
-    except Exception:
+    import yfinance as yf
+    entry_date = dt.date.fromisoformat(entry_date[:10])
+    clock, start = now_eastern(asof), next_session(entry_date)
+    end = clock.date() + dt.timedelta(days=1)
+    frame = yf.download(ticker, start=start, end=end,
+                        interval='1d', auto_adjust=False, actions=True, progress=False)
+    if frame is not None and isinstance(frame.columns, pd.MultiIndex):
+        frame.columns = [c[0] for c in frame.columns]
+    completed = completed_history(frame, start, clock)
+    if completed is None or completed.empty:
         return None
-    if df is None or len(df) == 0:
-        return None
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [c[0] for c in df.columns]
-
-    # RE-AUDIT R1 (2026-10-04): this counted a level as reached when the stop touched on
-    # the SAME day (target-first on ties) and ignored gaps. Every bar is now resolved by
-    # exits.resolve_bar, the live monitor's rule: a day touching both is a stop, and a gap
-    # through a level resolves at the open.
-    from exits import resolve_bar
-    st = entry_price * (1 + STOP / 100)
-    bars = [(float(r['Open']), float(r['High']), float(r['Low'])) for _, r in df.iterrows()]
-
-    def hit_before_stop(pct):
-        """Day a +pct target is reached before the stop (shared rule), else None."""
-        tgt = entry_price * (1 + pct / 100)
-        for i, (o, h, l) in enumerate(bars, 1):
-            res = resolve_bar(o, h, l, tgt, st)
-            if res is not None:
-                return i if res[0] == 'TP1' else None
-        return None
-
-    stop_day = None
-    for i, (o, h, l) in enumerate(bars, 1):
-        res = resolve_bar(o, h, l, float('inf'), st)       # the stop alone: first touch/gap
-        if res is not None:
-            stop_day = i
-            break
-
-    conserv_day = hit_before_stop(CONSERV)
-    tp1_day = hit_before_stop(TP1)
-    tp2_day = hit_before_stop(TP2)
-    tp3_day = hit_before_stop(TP3)
-
-    if tp3_day:
-        also = 'TP3 +20%'
-    elif tp2_day:
-        also = 'TP2 +11%'
-    else:
-        also = '—'
-
-    if tp1_day:
-        outcome = 'WIN'
-    elif conserv_day:
-        outcome = 'WIN (conserv)'
-    elif stop_day:
-        outcome = 'LOSS'
-    else:
-        outcome = 'open/timeout'
-
-    return {
-        'conserv_day': conserv_day, 'tp1_day': tp1_day,
-        'tp2_day': tp2_day, 'tp3_day': tp3_day, 'stop_day': stop_day,
-        'also_reached': also, 'outcome': outcome,
-    }
+    factor = split_factor(frame, entry_date)
+    frame = completed
+    if window_days is not None:
+        if not isinstance(window_days, int) or window_days < 1:
+            raise ValueError('window_days must be a positive calendar observation window')
+        frame = frame.loc[[ix.date() < entry_date + dt.timedelta(days=window_days) for ix in frame.index]]
+    entry = float(completed.iloc[0]['Open']) if entry_policy == 'next_regular_open' else entry_price / factor
+    shadows = {label: walk_bars(frame, entry, pct, STOP)
+               for label, pct in {'conserv': CONSERV, 'tp1': TP1, 'tp2': TP2, 'tp3': TP3}.items()}
+    base = shadows['tp1']
+    days = {f'{label}_day': r['days_in'] if r['outcome'] == 'TP1' else None
+            for label, r in shadows.items()}
+    return {**days, 'stop_day': base['days_in'] if base['outcome'] == 'STOP' else None,
+            'also_reached': 'TP3 +20%' if days['tp3_day'] else 'TP2 +11%' if days['tp2_day'] else '—',
+            'outcome': {'TP1': 'WIN', 'STOP': 'LOSS', 'OPEN': 'OPEN'}[base['outcome']],
+            'complete': base['complete'], 'return_pct': base['return_pct'],
+            'exit_price': base['exit_price'], 'exit_date': base['exit_date'],
+            'excursion_bounds': base['excursion_bounds'], 'exit_note': base['exit_note'],
+            'shadows': shadows, 'model_policy': base['execution_method'],
+            'entry_price': entry, 'entry_policy': entry_policy,
+            'actual_entry_date': completed.index[0].date().isoformat() if entry_policy == 'next_regular_open' else entry_date.isoformat(),
+            'price_basis': 'split_normalized_price_only'}
 
 
 if __name__ == '__main__':
     import sys
-    tk, dt, pr = sys.argv[1], sys.argv[2], float(sys.argv[3])
-    print(model_exits(tk, dt, pr))
+    print(model_exits(sys.argv[1], sys.argv[2], float(sys.argv[3])))

@@ -33,47 +33,34 @@ def recompute_score(cand_raw: dict, thresholds: dict) -> int:
 
 
 def simulate_trade(ticker: str, entry_date: str, entry_price: float,
-                    tp1_pct: float, stop_pct: float, max_days: int | None = None) -> dict:
-    """Walk daily OHLC; return the outcome under the LIVE exit rule.
-
-    RE-AUDIT R1 (2026-10-04): this had its own engine — target checked BEFORE the stop,
-    every stop booked at exactly stop_pct even through a gap, and a 10-day timeout the live
-    book does not have. It now resolves every bar with exits.resolve_bar (shared with the
-    monitor and path_labels) and holds without a time limit unless max_days is given
-    explicitly, in which case TIMEOUT marks a DIFFERENT strategy, not the live one.
-    """
-    from exits import resolve_bar, held_extremes
-    e = dt.datetime.strptime(entry_date, '%Y-%m-%d').date()
-    end = (e + dt.timedelta(days=max_days + 7)) if max_days else dt.date.today() + dt.timedelta(days=1)
-    try:
-        df = yf.Ticker(ticker).history(start=e + dt.timedelta(days=1), end=end, auto_adjust=True)
-    except Exception:
-        return {'outcome': 'ERROR', 'return_pct': None}
-    if df.empty:
-        return {'outcome': 'NO_DATA', 'return_pct': None}
-
-    T1 = entry_price * (1 + tp1_pct / 100)
-    STOP = entry_price * (1 + stop_pct / 100)
-    mae = 0.0; mfe = 0.0
-    days_in = 0
-    for idx, row in df.iterrows():
-        days_in += 1
-        o, high, low = float(row['Open']), float(row['High']), float(row['Low'])
-        res = resolve_bar(o, high, low, T1, STOP)
-        lo_h, hi_h = held_extremes(o, high, low, res)
-        mae = min(mae, (lo_h / entry_price - 1) * 100)
-        mfe = max(mfe, (hi_h / entry_price - 1) * 100)
-        if res is not None:
-            reason, px, note = res
-            return {'outcome': reason, 'return_pct': (px / entry_price - 1) * 100, 'days_in': days_in,
-                    'mae_pct': mae, 'mfe_pct': mfe, 'note': note}
-        if max_days and days_in >= max_days:
-            close = float(row['Close'])
-            return {'outcome': 'TIMEOUT', 'return_pct': (close / entry_price - 1) * 100,
-                    'days_in': days_in, 'mae_pct': mae, 'mfe_pct': mfe}
-    close = float(df['Close'].iloc[-1])
-    return {'outcome': 'OPEN', 'return_pct': (close / entry_price - 1) * 100,
-            'days_in': days_in, 'mae_pct': mae, 'mfe_pct': mfe}
+                   tp1_pct: float, stop_pct: float, max_days=None,
+                   entry_policy='legacy_close', asof=None) -> dict:
+    """Shared completed-session paper model; an observation limit censors, never sells."""
+    from exits import completed_history, walk_bars, split_factor
+    from market_time import now_eastern, next_session
+    e = dt.date.fromisoformat(entry_date)
+    clock, start = now_eastern(asof), next_session(e)
+    end = clock.date() + dt.timedelta(days=1)
+    df = yf.Ticker(ticker).history(start=start, end=end,
+                                  auto_adjust=False, actions=True, interval='1d')
+    actions = df
+    df = completed_history(df, start, clock)
+    if df is None or df.empty:
+        return {'outcome': 'NO_DATA', 'return_pct': None, 'complete': False}
+    if entry_policy == 'next_regular_open':
+        entry_price = float(df.iloc[0]['Open'])
+    else:
+        entry_price /= split_factor(actions, e)
+    if max_days is not None:
+        if not isinstance(max_days, int) or max_days < 1:
+            raise ValueError('max_days must be a positive observation count')
+        df = df.iloc[:max_days]
+    result = walk_bars(df, entry_price, tp1_pct, stop_pct)
+    result['entry_policy'] = entry_policy
+    result['entry'] = entry_price
+    result['actual_entry_date'] = df.index[0].date().isoformat() if entry_policy == 'next_regular_open' else e.isoformat()
+    result['price_basis'] = 'split_normalized_price_only'
+    return result
 
 
 def replay(min_score: int = 1, thresholds: dict = None, tp1_pct: float = 10.0,
@@ -107,14 +94,18 @@ def replay(min_score: int = 1, thresholds: dict = None, tp1_pct: float = 10.0,
             c['recomputed_score'] = recompute_score(c.get('filter_raw', {}), thresholds)
         # Rank: score desc, tiebreaker z_ncp asc (more negative wins)
         ranked = sorted(passing, key=lambda c: (-c['recomputed_score'],
-                                                 c.get('filter_raw', {}).get('z_ncp') or 999))
+                                                 c.get('filter_raw', {}).get('z_ncp')
+                                                 if c.get('filter_raw', {}).get('z_ncp') is not None else 999))
         # Top survivor with score >= min_score
         top = next((c for c in ranked if c['recomputed_score'] >= min_score), None)
         if top is None:
             continue
         # Simulate
-        sim = simulate_trade(top['ticker'], d, top['spot_close'], tp1_pct, stop_pct)
-        if sim.get('return_pct') is None:
+        entry_policy = a.get('entry_policy') or (
+            'next_regular_open' if str(a.get('execution_model', '')).startswith('next_regular_open') else 'legacy_close')
+        sim = simulate_trade(top['ticker'], d, top['spot_close'], tp1_pct, stop_pct,
+                             entry_policy=entry_policy)
+        if sim.get('outcome') in ('NO_DATA', 'ERROR'):
             continue
         trades.append({
             'date': d, 'ticker': top['ticker'], 'entry': top['spot_close'],
@@ -124,19 +115,22 @@ def replay(min_score: int = 1, thresholds: dict = None, tp1_pct: float = 10.0,
     if not trades:
         return {'trades': [], 'summary': {'n': 0}}
 
-    rets = [t['return_pct'] for t in trades]
+    resolved = [t for t in trades if t.get('complete')]
+    rets = [t['return_pct'] for t in resolved]
     outcomes = Counter(t['outcome'] for t in trades)
     summary = {
         'n': len(trades),
-        'total_return_pct': round(sum(rets), 2),
-        'avg_return_pct': round(statistics.mean(rets), 2),
-        'median_return_pct': round(statistics.median(rets), 2),
-        'win_rate_pct': round(100 * sum(1 for r in rets if r > 0) / len(rets), 1),
+        'sum_trade_returns_pct': round(sum(rets), 2),
+        'resolved_n': len(resolved), 'censored_n': len(trades) - len(resolved),
+        'avg_return_pct': round(statistics.mean(rets), 2) if rets else None,
+        'median_return_pct': round(statistics.median(rets), 2) if rets else None,
+        'win_rate_pct': round(100 * sum(1 for r in rets if r > 0) / len(rets), 1) if rets else None,
         'outcomes': dict(outcomes),
-        'mae_avg_winners': round(statistics.mean([t['mae_pct'] for t in trades if t['return_pct'] > 0]), 2) if any(t['return_pct'] > 0 for t in trades) else None,
-        'mfe_avg_winners': round(statistics.mean([t['mfe_pct'] for t in trades if t['return_pct'] > 0]), 2) if any(t['return_pct'] > 0 for t in trades) else None,
+        'mae_avg_winners': round(statistics.mean([t['mae_pct'] for t in resolved if t['return_pct'] > 0]), 2) if any(t['return_pct'] > 0 for t in resolved) else None,
+        'mfe_avg_winners': round(statistics.mean([t['mfe_pct'] for t in resolved if t['return_pct'] > 0]), 2) if any(t['return_pct'] > 0 for t in resolved) else None,
     }
-    return {'trades': trades, 'summary': summary, 'parameters_tested': {
+    return {'model': 'legacy_single_pick_research; not a capital-constrained portfolio',
+            'trades': trades, 'summary': summary, 'parameters_tested': {
         'min_score': min_score, 'thresholds': thresholds,
         'tp1_pct': tp1_pct, 'stop_pct': stop_pct,
     }}
@@ -169,4 +163,4 @@ if __name__ == '__main__':
         print(f"\nPer-trade:")
         for t in result['trades']:
             print(f"  {t['date']} {t['ticker']:6s} score={t['score']} → {t['outcome']:8s} "
-                  f"{t['return_pct']:+6.1f}% (MAE {t['mae_pct']:+.1f}%, MFE {t['mfe_pct']:+.1f}%)")
+                  f"realized={t['return_pct']} (MAE/MFE bounds: {t.get('excursion_bounds')})")

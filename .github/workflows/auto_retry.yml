@@ -1,60 +1,57 @@
 name: Auto-retry failed scans
-
-# WHY THIS EXISTS
-# 2026-07-27 (the first legitimate signal day after the outage): GitHub's hosted runner
-# died mid-PM-scan ("The hosted runner lost communication with the server") 1h20m in.
-# Nothing in our code failed — but the day's PM snapshot + signal run needed a HUMAN to
-# notice the red X and re-dispatch. This workflow was meant to do that automatically.
-#
-# IT NEVER FIRED (found 2026-10-04): zero runs from 7/27 to 10/04, not even skipped ones,
-# so the trigger itself never matched. When both scans failed on 9/28, nothing retried.
-# Suspected cause: both workflow names contained "+", which GitHub may treat as a pattern
-# character in this filter. The names were changed to avoid "+" on 2026-10-04, and this
-# workflow recorded its FIRST run ever minutes later (19:23 UTC, correctly skipped: the
-# run it followed was a manual replay). Strong evidence for the "+" explanation; a retry
-# after a real failed SCHEDULED scan has still not been exercised.
-# It is NO LONGER the safety net: skew_pm.yml has its own guarded backup run (21:07 UTC).
-# This stays as a faster second chance (immediately after a failure, AM included).
-#
-# LOOP SAFETY: retries only when the FAILED run was event == 'schedule'. The retry itself
-# is a workflow_dispatch, so if the retry also fails it does NOT chain — exactly one
-# automatic retry per scheduled failure. The PM guard skips the retry if the first attempt
-# completed, and the shared writer queue (concurrency group) makes it wait its turn.
-
+# One dispatch per failed scheduled run. Dispatch failures cannot recursively
+# trigger another retry. The guarded PM backup is a separate recovery path.
+# Historical '+' workflow names were suspected, not established as the cause
+# of missing runs; skipped workflow_run events do not prove recovery works.
 on:
   workflow_run:
     workflows:
-      - "Skew AM - auto scan and label"
-      - "Skew PM - auto scan, label, scanner, signal"
+      - 'Skew AM - auto scan and label'
+      - 'Skew PM - auto scan, label, scanner, signal'
     types: [completed]
-
 permissions:
   actions: write
   contents: read
-
 jobs:
   retry:
     if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install notification dependency
+        run: python -m pip install requests
       - name: Re-dispatch the failed scan once
+        id: dispatch
         env:
           GH_TOKEN: ${{ github.token }}
+          WF_PATH: ${{ github.event.workflow_run.path }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPO: ${{ github.repository }}
         run: |
-          WF_FILE=$(basename "${{ github.event.workflow_run.path }}")
-          echo "Scheduled run of '${{ github.event.workflow_run.name }}' FAILED (run ${{ github.event.workflow_run.id }})."
-          echo "Re-dispatching $WF_FILE once..."
-          gh workflow run "$WF_FILE" --repo "${{ github.repository }}"
-          echo "Re-dispatched."
-
-      - name: Telegram heads-up (best effort)
+          WF_FILE=$(basename "$WF_PATH")
+          case "$WF_FILE" in
+            skew_am.yml|skew_pm.yml) ;;
+            *) echo '::error::Unexpected recovery workflow'; exit 1 ;;
+          esac
+          gh workflow run "$WF_FILE" --repo "$REPO" --ref "$BRANCH"
+      - name: Telegram recovery status
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISPATCH_RESULT: ${{ steps.dispatch.outcome }}
+          FAILED_NAME: ${{ github.event.workflow_run.name }}
         run: |
-          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TELEGRAM_CHAT_ID}" \
-              --data-urlencode text="⚠️ ${{ github.event.workflow_run.name }}: scheduled run failed — auto-retry dispatched. If this repeats today, check Actions." >/dev/null || true
-          fi
+          python - <<'PY'
+          import os
+          from alert import send_telegram
+          outcome = 'dispatched' if os.environ['DISPATCH_RESULT'] == 'success' else 'FAILED to dispatch'
+          if not send_telegram(f"⚠️ {os.environ['FAILED_NAME']}: scheduled run failed; automatic retry {outcome}. Check Actions for the actual recovery result."):
+              raise SystemExit('Recovery notification failed or is not configured')
+          PY

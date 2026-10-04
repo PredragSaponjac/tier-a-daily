@@ -1,34 +1,16 @@
-"""Trade excursion tracker — Heat First (MAE) -> Peak (MFE) -> days, per closed trade.
+"""Manual held-period daily excursion bounds and immutable record presentation.
 
-Powers the 'heat & peak' block in X / Telegram posts. Auto-updates as trades close.
-
-KEY DESIGN — compute once, store forever:
-  yfinance only serves 15-min intraday for the last ~60 days. A trade's intraday
-  heat/peak must therefore be computed WHILE the data is still fresh (right after
-  it closes) and stored permanently in closed_trades.json. The post then reads
-  stored values — it never re-pulls aged-out data, so old trades never break.
-
-Definitions (all relative to entry price):
-  heat_pct = Maximum Adverse Excursion measured UP TO the favorable peak — i.e.
-             the deepest the trade went underwater BEFORE it worked. (Post-peak
-             round-trips are intentionally excluded so they don't contaminate the
-             'heat before it works' read.)
-  peak_pct = Maximum Favorable Excursion (highest intraday high) within the hold
-             window (~10-11 trading days = our 10-day max hold).
-  peak_day = trading-calendar days from entry to that peak.
-
-Usage:
-  # add a trade the day it closes (computes + stores while data is fresh):
-  python excursions.py --add TICKER YYYY-MM-DD ENTRY_PRICE WIN|LOSS
-  # re-render the block (what goes in posts):
-  python excursions.py --show
+Entry is the reported close-date price. Only sessions after that date through
+the explicit manual exit are eligible. The exit day's ordering is unknown, so
+both extrema remain ranges. Old full-window measurements are labeled unavailable.
+No maximum holding period or exact intraday timestamps are inferred.
 """
 import json
+import math
 import os
 from datetime import datetime, timedelta
 
 STORE = os.path.join(os.path.dirname(__file__), 'closed_trades.json')
-HOLD_WINDOW_DAYS = 16  # calendar days ~= 10-11 trading days (our 10-day max hold)
 
 
 def load() -> list:
@@ -39,112 +21,120 @@ def load() -> list:
 
 
 def save(trades: list):
-    with open(STORE, 'w', encoding='utf-8') as f:
-        json.dump(trades, f, indent=2)
+    from pathlib import Path
+    from position_tracker import _atomic_write
+    _atomic_write(Path(STORE), json.dumps(trades, indent=2))
 
 
-def compute_excursion(ticker: str, entry_date: str, entry_price: float, exit_date: str | None = None):
-    """Pull intraday bars and compute heat-before-peak + peak + days.
-
-    Returns dict(heat_pct, peak_pct, peak_day, src) or None if no data.
-    Run this WHILE the trade is < ~55 days old (15-min still available).
-
-    RE-AUDIT R5 (2026-10-04): the window started ON the entry date, so for an entry at the
-    close it counted that day's earlier prices (before the trade existed: an entry-day high
-    of 130 on a 100 entry read as +30% MFE), and it ran a fixed window past the exit. It now
-    starts the session AFTER entry and, when the exit date is known, stops at the exit day.
-    Day 1 = the first session after entry (the convention path_labels uses).
-    """
+def compute_excursion(ticker, entry_date, entry_price, exit_date=None, exit_price=None, asof=None):
+    """Held-period daily bounds for an explicit manual exit; no unbounded window."""
+    if exit_date is None or exit_price is None:
+        return None
     import yfinance as yf
     import pandas as pd
-    e = datetime.fromisoformat(entry_date)
-    start = (e + timedelta(days=1)).strftime('%Y-%m-%d')
-    end = ((datetime.fromisoformat(exit_date) + timedelta(days=1)) if exit_date
-           else (e + timedelta(days=HOLD_WINDOW_DAYS))).strftime('%Y-%m-%d')
-
-    def pull(interval):
-        try:
-            d = yf.download(ticker, start=start, end=end, interval=interval,
-                            progress=False, auto_adjust=False)
-            if d is None or len(d) == 0:
-                return None
-            if isinstance(d.columns, pd.MultiIndex):
-                d.columns = [c[0] for c in d.columns]
-            return d
-        except Exception:
-            return None
-
-    src = '15m'
-    df = pull('15m')
-    if df is None:
-        df = pull('1h'); src = '1h'
-    if df is None:
-        df = pull('1d'); src = '1d'
-    if df is None or len(df) == 0:
+    from market_time import now_eastern, next_session, sessions_between, session_completed
+    e, x = datetime.fromisoformat(entry_date).date(), datetime.fromisoformat(exit_date).date()
+    if x < e or any(not math.isfinite(v) or v <= 0 for v in (entry_price, exit_price)):
+        raise ValueError('invalid manual entry/exit')
+    clock = now_eastern(asof)
+    if not session_completed(x, clock):
         return None
+    # Yahoo also rebases old OHLC for splits after the manual exit. Fetch those
+    # actions too, then normalize both reported original fills to one basis.
+    frame = yf.download(ticker, start=e + timedelta(days=1), end=clock.date() + timedelta(days=1),
+                        interval='1d', auto_adjust=False, actions=True, progress=False)
+    if frame is None or frame.empty:
+        return None
+    if isinstance(frame.columns, pd.MultiIndex):
+        frame.columns = [c[0] for c in frame.columns]
+    if not {'Open', 'High', 'Low', 'Close', 'Stock Splits', 'Dividends'}.issubset(frame.columns):
+        raise ValueError('manual OHLC/action history incomplete')
+    factor = exit_factor = 1.0
+    actions = []
+    for ix, row in frame.iterrows():
+        split, dividend = float(row['Stock Splits']), float(row['Dividends'])
+        if not math.isfinite(split) or not math.isfinite(dividend) or split < 0:
+            raise ValueError('invalid manual corporate action')
+        if split and e < ix.date() <= clock.date():
+            factor *= split
+            if ix.date() > x:
+                exit_factor *= split
+            actions.append({'date': ix.date().isoformat(), 'split': split})
+        if dividend and e < ix.date() <= clock.date():
+            actions.append({'date': ix.date().isoformat(), 'dividend': dividend,
+                            'return_treatment': 'excluded_price_only'})
+    frame = frame.loc[[e < ix.date() <= x for ix in frame.index]]
+    if frame.empty or [ix.date() for ix in frame.index] != sessions_between(next_session(e), x):
+        return None
+    if not math.isfinite(factor) or not math.isfinite(exit_factor) or factor <= 0 or exit_factor <= 0:
+        raise ValueError('invalid cumulative manual split factor')
+    for _, row in frame.iterrows():
+        opn, high, low, close = (float(row[k]) for k in ('Open', 'High', 'Low', 'Close'))
+        if (any(not math.isfinite(v) or v <= 0 for v in (opn, high, low, close)) or
+                low > min(opn, close) or high < max(opn, close)):
+            raise ValueError('invalid manual daily OHLC')
+    entry = entry_price / factor
+    fill = exit_price / exit_factor
+    before = frame.loc[[ix.date() < x for ix in frame.index]]
+    last = frame.loc[[ix.date() == x for ix in frame.index]]
+    low_min = low_max = high_min = high_max = entry
+    if len(before):
+        low_min = low_max = min(entry, float(before['Low'].min()))
+        high_min = high_max = max(entry, float(before['High'].max()))
+    if len(last):
+        r = last.iloc[-1]
+        low_min = min(low_min, float(r['Low']))
+        if not float(r['Low']) <= fill <= float(r['High']):
+            raise ValueError('reported manual exit outside the normalized daily range')
+        low_max = min(low_max, float(r['Open']), fill)
+        high_min = max(high_min, float(r['Open']), fill)
+        high_max = max(high_max, float(r['High']))
+    pct = lambda px: (px / entry - 1) * 100
+    bounds = {'mae_pct_min': pct(low_min), 'mae_pct_max': pct(low_max),
+              'mfe_pct_min': pct(high_min), 'mfe_pct_max': pct(high_max),
+              'exact': low_min == low_max and high_min == high_max,
+              'method': 'manual_exit_daily_bounds'}
+    return {'heat_pct': bounds['mae_pct_min'], 'peak_pct': bounds['mfe_pct_max'],
+            'peak_day': None, 'first_green_day': None, 'src': 'daily_bounds',
+            'excursion_bounds': bounds, 'price_basis': 'split_normalized_price_only',
+            'normalized_entry_price': entry, 'normalized_exit_price': fill,
+            'original_exit_price': exit_price, 'quantity_factor': factor,
+            'corporate_actions': actions}
 
-    # Map each bar to a trading-day index (1 = first session AFTER entry) so 'day' counts
-    # trading days, not calendar days (more meaningful to a trader).
-    tdays = sorted(set(ix.date() for ix in df.index))
-    tdidx = {d: i + 1 for i, d in enumerate(tdays)}
 
-    hi_t = df['High'].idxmax()
-    hi = float(df['High'].max())
-    peak_pct = round((hi / entry_price - 1) * 100, 1)
-    pre = df.loc[:hi_t]                       # only up to the favorable peak
-    lo = float(pre['Low'].min())
-    heat_pct = round((lo / entry_price - 1) * 100, 1)
-    peak_day = tdidx[hi_t.date()]
-
-    # First bar that turned +5% green (the 'it's working' moment), trading days
-    green = df[df['High'] >= entry_price * 1.05]
-    first_green_day = tdidx[green.index[0].date()] if len(green) else None
-
-    return {'heat_pct': heat_pct, 'peak_pct': peak_pct, 'peak_day': peak_day,
-            'first_green_day': first_green_day, 'src': src}
-
-
-def add_trade(ticker, entry_date, entry_price, outcome, note=''):
-    """Compute (while data fresh) + store a newly-closed trade. Idempotent by ticker+date."""
+def _add_trade(ticker, entry_date, entry_price, outcome, note='', exit_date=None, exit_price=None):
+    """Store explicit manual close bounds. Idempotent by ticker+date."""
     trades = load()
     if any(t['ticker'] == ticker and t['entry_date'] == entry_date for t in trades):
         print(f'[excursions] {ticker} {entry_date} already stored — skip')
         return
-    exc = compute_excursion(ticker, entry_date, float(entry_price))
+    exc = compute_excursion(ticker, entry_date, float(entry_price), exit_date, exit_price)
     if exc is None:
-        print(f'[excursions] WARNING: no intraday data for {ticker} {entry_date} (aged out?)')
+        print(f'[excursions] WARNING: held-period daily bounds unavailable for {ticker} {entry_date}')
         exc = {'heat_pct': None, 'peak_pct': None, 'peak_day': None, 'src': 'none'}
     rec = {
-        'ticker': ticker, 'entry_date': entry_date, 'entry_price': float(entry_price),
+        'ticker': ticker, 'entry_date': entry_date, 'entry_price': exc.get('normalized_entry_price', float(entry_price)),
+        'original_entry_price': float(entry_price), 'exit_date': exit_date,
+        'exit_price': exc.get('normalized_exit_price', exit_price),
         'outcome': outcome.upper(), **exc,
-        'computed_on': datetime.now().strftime('%Y-%m-%d') if False else entry_date,
+        'computed_on': datetime.now().date().isoformat(),
         'note': note,
     }
-    # NOTE: computed_on stamped by caller/date to avoid Date.now in restricted ctx;
-    # here we just reuse entry_date as a placeholder when not provided.
     trades.append(rec)
     trades.sort(key=lambda t: t['entry_date'])
     save(trades)
     print(f'[excursions] stored {ticker}: heat {exc["heat_pct"]}%  peak {exc["peak_pct"]}%  d{exc["peak_day"]} ({exc["src"]})')
 
 
-def _agg(trades):
-    import statistics as st
-    wins = [t for t in trades if str(t['outcome']).startswith('WIN') and t['heat_pct'] is not None]
-    if not wins:
-        return None
-    heats = [t['heat_pct'] for t in wins]
-    peaks = [t['peak_pct'] for t in wins if t['peak_pct'] is not None]
-    greens = [t.get('first_green_day') for t in wins if t.get('first_green_day') is not None]
-    return {
-        'n_win': len(wins),
-        'heat_avg': st.mean(heats), 'heat_median': st.median(heats), 'heat_worst': min(heats),
-        'peak_lo': min(peaks) if peaks else None, 'peak_hi': max(peaks) if peaks else None,
-        'green_lo': min(greens) if greens else None, 'green_hi': max(greens) if greens else None,
-    }
+def add_trade(*args, **kwargs):
+    from state_lock import portfolio_lock, checkpoint
+    with portfolio_lock():
+        result = _add_trade(*args, **kwargs)
+        checkpoint(paths=('closed_trades.json',))
+        return result
 
 
-BACKTEST_LINE = "Backtest n=63: 67% TP1 hit · 71% profitable · +5.2% avg/trade"
+BACKTEST_LINE = "Paper/manual reported calls; execution costs and actual fills are unverified."
 
 
 def format_results_line(trades=None) -> str:
@@ -178,42 +168,27 @@ def format_results_line(trades=None) -> str:
     wr = round(100 * wins / total) if total else 0
     avg = round(st.mean(win_res)) if win_res else 0
     return '\n'.join([
-        f"📊 Live record (since {since}): " + " | ".join(parts),
+        f"📊 Reported calls (since {since}; paper/manual): " + " | ".join(parts),
         f"{wins} of {total} winners ({wr}% win) · avg winner +{avg}%",
         BACKTEST_LINE,
     ])
 
 
-def format_excursion_block(trades=None) -> str:
-    """Render the 'heat & peak' block for X / Telegram posts."""
-    if trades is None:
-        trades = load()
+def format_excursion_block(trades=None):
+    """Render held-period ranges; historical full-window values are unverified."""
+    trades = load() if trades is None else trades
     if not trades:
         return ''
-    lines = ['📊 Track record — heat & peak, every call (15-min intraday):']
+    lines = ['Paper record: held-period daily excursion bounds:']
     for t in trades:
-        tk = t['ticker']
-        if t['outcome'] == 'LOSS' or t['peak_pct'] is None:
-            lines.append(f"{tk:<5s} {t['heat_pct']:+.1f}%  →  stopped ❌")
-        else:
-            lines.append(f"{tk:<5s} {t['heat_pct']:+.1f}%  →  +{t['peak_pct']:.1f}%  (d{t['peak_day']})")
-    a = _agg(trades)
-    if a:
-        lines.append('')
-        green = ''
-        if a['green_lo'] is not None:
-            if a['green_lo'] == a['green_hi']:
-                green = f"Winners turned green (+5%) by day {a['green_lo']}, "
-            else:
-                green = f"Winners turned green (+5%) within {a['green_lo']}–{a['green_hi']} days, "
-        lines.append(
-            f"{green}peaking +{a['peak_lo']:.0f}–{a['peak_hi']:.0f}% by ~1–2 weeks."
-        )
-        lines.append(
-            f"📉 Avg heat before it works: {a['heat_avg']:+.1f}% "
-            f"(median {a['heat_median']:+.1f}%, deepest {a['heat_worst']:+.1f}%) — "
-            f"expect roughly this much red first. A normal pullback ≠ a broken trade."
-        )
+        b = t.get('excursion_bounds')
+        if not b:
+            lines.append(f"{t['ticker']}: held-period extrema unavailable (legacy measurement)")
+            continue
+        def value(prefix):
+            lo, hi = b[prefix + '_pct_min'], b[prefix + '_pct_max']
+            return f'{lo:+.1f}%' if abs(lo - hi) < 1e-8 else f'{lo:+.1f}% to {hi:+.1f}%'
+        lines.append(f"{t['ticker']}: adverse {value('mae')}; favorable {value('mfe')}")
     return '\n'.join(lines)
 
 
@@ -223,10 +198,14 @@ if __name__ == '__main__':
     p.add_argument('--add', nargs=4, metavar=('TICKER', 'DATE', 'PRICE', 'OUTCOME'),
                    help='compute+store a closed trade while data is fresh')
     p.add_argument('--note', default='')
+    p.add_argument('--exit-date')
+    p.add_argument('--exit-price', type=float)
     p.add_argument('--show', action='store_true', help='print the post block')
     args = p.parse_args()
     if args.add:
+        if args.exit_date is None or args.exit_price is None:
+            p.error('--add requires --exit-date and --exit-price for a held-period measurement')
         tk, dt, pr, oc = args.add
-        add_trade(tk, dt, pr, oc, note=args.note)
+        add_trade(tk, dt, pr, oc, note=args.note, exit_date=args.exit_date, exit_price=args.exit_price)
     if args.show or not args.add:
         print(format_excursion_block())

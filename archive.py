@@ -12,8 +12,11 @@ Without UW re-pulls, since the raw metric values are saved.
 import hashlib
 import json
 import os
+import tempfile
+import uuid
+import math
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date, timezone
 
 ARCHIVE_DIR = Path(__file__).parent / 'signals'
 ARCHIVE_DIR.mkdir(exist_ok=True)
@@ -22,14 +25,43 @@ ARCHIVE_DIR.mkdir(exist_ok=True)
 def run_id() -> str:
     """Identity of THIS run: the GitHub run + attempt, or a local timestamp."""
     if os.environ.get('GITHUB_RUN_ID'):
-        return f"gh{os.environ['GITHUB_RUN_ID']}_{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
-    return 'local_' + datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        return f"gh{os.environ['GITHUB_RUN_ID']}_{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}_{uuid.uuid4().hex}"
+    return 'local_' + uuid.uuid4().hex
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    tmp.write_text(text, encoding='utf-8')
-    os.replace(tmp, path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write(text); fh.flush(); os.fsync(fh.fileno())
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def _safe(value):
+    if isinstance(value, dict):
+        return {str(k): _safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_safe(v) for v in value]
+    if hasattr(value, 'item'):
+        return _safe(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def save_draft(scan_date, name, text):
+    scan_date = date.fromisoformat(scan_date).isoformat()
+    if not str(name).replace('_', '').replace('-', '').isalnum():
+        raise ValueError('Invalid draft identity')
+    path = ARCHIVE_DIR.parent / 'x_drafts' / f'{scan_date}_{name}.txt'
+    _atomic_write(path, text)
+    return path
 
 
 def _parameters_sha256() -> str | None:
@@ -61,12 +93,22 @@ def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str |
     Every call ALSO writes an immutable copy to signals/runs/<date>_<run>.json (R7): the
     date file is the latest view, the runs/ files are the history it is derived from.
     """
+    scan_date = date.fromisoformat(scan_date).isoformat()
+    import parameters as P
+    data_generation = None
+    if os.environ.get('DURABLE_STATE_CHECKPOINT') == 'git':
+        import db_state
+        data_generation = db_state.generation()
     record = {
         'scan_date': scan_date,
         'run_at': datetime.utcnow().isoformat() + 'Z',
         'run_id': run_id(),
         'parameters_version': parameters_version,
         'parameters_sha256': _parameters_sha256(),
+        'parameters_snapshot': _safe(P.all_params()),
+        'candidate_inputs': _safe(enriched),
+        'execution_model': 'next_regular_open_completed_daily_conservative_v2',
+        'data_generation': data_generation,
         'min_filter_score_used': min_score_used,
         'picked_ticker': picked_ticker,
         # AUDIT F18: distinguish "not supplied" (None -> legacy single pick) from an
@@ -121,10 +163,14 @@ def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str |
             'noise': c.get('noise'),
             # F04 provenance: the entry is the scan's cached last price; the scan stores no
             # per-quote timestamp, so the decision time is the only as-of available.
-            'quote_source': 'skew_tracker scan last_price (no per-quote timestamp)',
+            'quote_source': c.get('quote_source', 'legacy source; quote as-of unknown'),
+            'quote_asof': c.get('quote_asof'),
+            'observed_at': c.get('observed_at'),
+            'screen_version': c.get('screen_version'),
+            'window_sessions': c.get('window_sessions'),
         })
 
-    text = json.dumps(record, indent=2, default=str)
+    text = json.dumps(_safe(record), indent=2, allow_nan=False)
     file_path = ARCHIVE_DIR / f'{scan_date}.json'
     _atomic_write(file_path, text)
     runs = ARCHIVE_DIR / 'runs'
@@ -138,19 +184,25 @@ def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str |
 
 def update_delivery(scan_date: str, **fields) -> dict:
     """Record channel results on the day's archived decision (atomic). Returns the record."""
+    scan_date = date.fromisoformat(scan_date).isoformat()
     path = ARCHIVE_DIR / f'{scan_date}.json'
     rec = json.loads(path.read_text(encoding='utf-8'))
     rec.setdefault('delivery', {}).update(fields)
-    _atomic_write(path, json.dumps(rec, indent=2, default=str))
+    event = {'run_id': rec.get('run_id'), 'scan_date': scan_date,
+             'recorded_at': datetime.now(timezone.utc).isoformat(), 'delivery_update': _safe(fields)}
+    event_path = ARCHIVE_DIR / 'events' / f'{scan_date}_{uuid.uuid4().hex}.json'
+    _atomic_write(event_path, json.dumps(event, indent=2, allow_nan=False))
+    _atomic_write(path, json.dumps(_safe(rec), indent=2, allow_nan=False))
     return rec
 
 
 def load_archive(scan_date: str) -> dict | None:
     """Load a specific day's archive."""
+    scan_date = date.fromisoformat(scan_date).isoformat()
     file_path = ARCHIVE_DIR / f'{scan_date}.json'
     if not file_path.exists():
         return None
-    return json.loads(file_path.read_text())
+    return json.loads(file_path.read_text(encoding='utf-8'))
 
 
 def list_archives() -> list[str]:

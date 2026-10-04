@@ -1,10 +1,11 @@
 {
-  "version": "1.1.0",
-  "last_updated": "2026-09-02",
-  "regime_note": "TAKE-ALL regime from 2026-09-02: every candidate that passes the gates is tracked as a position (up to max_concurrent), not only the top-ranked one. Rank order is kept solely for the cap and the archive. Gates, exits and thresholds are UNCHANGED from 1.0.0.",
+  "version": "2.0.0",
+  "last_updated": "2026-10-04",
+  "regime_note": "Prospective v2 from 2026-10-05: nine-session screen with session-consistent sigma, required unknown-data blocks, next regular-session open paper entries, completed-session daily barrier outcomes. Historical v1 evidence is descriptive and is not relabeled as v2 performance.",
   "entry": {
     "min_filter_score": 3,
-    "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate — best tradeable candidate fires even at UW<3."
+    "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate â€” best tradeable candidate fires even at UW<3.",
+    "execution_model": "next_regular_open"
   },
   "selection": {
     "require_strong_leg": true,
@@ -13,25 +14,28 @@
     "skew_noise_std_max": 20.0,
     "take_all_qualified": true,
     "max_concurrent": 6,
-    "take_all_comment": "2026-09-02 (user decision). Four independent tests showed the one-per-day pick has NO skill and the skipped names carried the return (clean universe: PICKED R +0.023 vs SKIPPED +0.518. CORRECTION 2026-10-04 (external audit): an earlier '~16x Sharpe-ish' figure was a ratio of small-cohort return/sd estimates with a near-zero denominator, not an annualized or capital-constrained portfolio Sharpe; it is withdrawn). So every candidate that passes the gates is tracked, in rank order, until open+new reaches max_concurrent (=6 covers 94% of days; median 2 open). SIZE EACH AT 1/max_concurrent OF THE BOOK — this spreads the same risk, it does not multiply it. Set take_all_qualified=false to revert to top-only.",
-    "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust — NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
-    "comment": "THE GATE (earned by SYM+RGTI losses, both weak-on-both). TRADEABLE only if >=1 strong leg: structural skew <= strong_skew_max (deep capitulation) OR vol-adjusted cushion >= strong_vol_cushion_min (cushion% / (ATM_IV/sqrt252) daily-moves). Weak on BOTH = NO TRADE even if it cleared the mechanical Tier A screen. Among tradeable: UW>=3 priority, else best by leg strength. Validated 7/8 vs history (only AR — weakest win, corrupt put-wall data — would've been skipped)."
+    "take_all_comment": "Preserved take-all policy: admit eligible names in rank order up to six reserved/open slots. Ranking and diversification benefit are unproven. Paper allocation is 1/6 per slot; pending entries reserve capacity.",
+    "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust â€” NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
+    "comment": "At least one structural/volatility leg required; unknown required data prevents admission."
   },
   "exits": {
     "tp1_pct": 10.0,
     "tp2_pct": 11.0,
     "tp3_pct": 20.0,
     "stop_pct": -7.0,
-    "time_stop_days": 10,
-    "scale_at_tp1_pct": 35,
-    "scale_at_tp2_pct": 35,
-    "scale_at_tp3_pct": 30,
+    "time_stop_days": null,
+    "scale_at_tp1_pct": 100,
+    "scale_at_tp2_pct": 0,
+    "scale_at_tp3_pct": 0,
     "bot_auto_close_at": "tp1",
-    "bot_auto_close_at_comment": "Bot's default exit is TP1. T2/T3 noted in post for traders holding longer at own discretion."
+    "bot_auto_close_at_comment": "Entire paper position resolves at TP1 or stop, without timeout; target gaps book target, stop gaps book opening price; ambiguous daily dual touches book stop. T2/T3 are separate hypothetical shadows.",
+    "execution_model": "completed_regular_session_daily_conservative"
   },
   "vetoes": {
     "earnings_within_days": 14,
-    "min_total_oi": 500
+    "min_total_oi": 500,
+    "unknown_policy": "block",
+    "earnings_buffer_basis": "calendar_days"
   },
   "filter_thresholds": {
     "ncp_z_threshold": -0.5,
@@ -60,6 +64,17 @@
       "date": "2026-09-02",
       "change": "take_all_qualified true, max_concurrent 6 (version 1.1.0)",
       "rationale": "The one-per-day pick has no measured skill (tiebreaker spearman +0.035; skipped > picked on 8/17 and again on 9/02 clean: PICKED R +0.023 vs SKIPPED +0.518, p=0.908; no entry metric separates winners from losers on 14 live or 43 historical). The edge is the screen, not the choosing, so discarding ~60% of qualified names was throwing away return. Take-all at equal weight looked better on the same small cohort (the '~16x Sharpe-ish' figure once quoted here is WITHDRAWN 2026-10-04: a ratio of small-sample estimates with a near-zero denominator, not a portfolio Sharpe). Gates, exits, thresholds unchanged. Cap 6 covers 94% of days (median 2 open). Position size = 1/6 of book. Also triples the learning sample."
+    },
+    {
+      "date": "2026-10-04",
+      "change": "v2 execution/data/inference contract",
+      "rationale": "Independent audit remediation, authorized by user. Separate prospective cohort; no profitability or ranking-skill claim."
     }
-  ]
+  ],
+  "screen": {
+    "lookback_sessions": 9,
+    "sigma_time_basis": "trading_sessions",
+    "version": "nine-session-v2",
+    "legacy_column_alias": "skew_change_5d stores the named version's interval change; read window_sessions and screen_version."
+  }
 }

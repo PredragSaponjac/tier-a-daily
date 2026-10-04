@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Label Candidates — Fill in forward returns for candidate_log rows.
+Label Candidates — Versioned prospective calendar-day close benchmarks.
 
-For each candidate_log row with NULL forward returns, fetches price data
-via yfinance and fills 1d/3d/5d/10d/20d returns.
+Signals on/after 2026-10-05 are written into candidate_forward_v2. Legacy
+candidate_log labels are preserved. Entry and forward prices use the same
+price-only split-rebased series; missing expected provider inputs fail loudly.
 
 HORIZONS ARE CALENDAR DAYS (documented 2026-10-04, audit F20): fwd_Nd is the first
 close ON OR AFTER scan_date + N calendar days, not N trading sessions. A Friday fwd_3d
@@ -31,125 +32,100 @@ import yfinance as yf
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skew_history.db")
 
 
-def update_forward_returns(db_path: str) -> int:
-    """Fill in forward returns for candidate_log rows that are missing them.
+FORWARD_VERSION = 2
+PROSPECTIVE_START = '2026-10-05'
+HORIZONS = (('1d', 1), ('3d', 3), ('5d', 5), ('10d', 10), ('20d', 20))
+FORWARD_TABLE = 'candidate_forward_v2'
 
-    Groups by ticker to minimize yfinance API calls.
-    Returns the number of rows updated.
+
+def ensure_forward_schema(conn):
+    horizons = ', '.join(f'fwd_{label}_return REAL, fwd_{label}_date TEXT' for label, _ in HORIZONS)
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS {FORWARD_TABLE} (
+      id INTEGER PRIMARY KEY, ticker TEXT NOT NULL, scan_date TEXT NOT NULL,
+      sector TEXT, industry TEXT, entry REAL, label_version INTEGER NOT NULL,
+      price_basis TEXT, price_hash TEXT, price_inputs_json TEXT, observed_through TEXT,
+      fwd_5d_return_short REAL, sector_residual_5d REAL, industry_residual_5d REAL,
+      {horizons})""")
+    if 'price_inputs_json' not in {r[1] for r in conn.execute(f'PRAGMA table_info({FORWARD_TABLE})')}:
+        conn.execute(f'ALTER TABLE {FORWARD_TABLE} ADD COLUMN price_inputs_json TEXT')
+
+
+def forward_labels(hist, signal_date):
+    """Calendar-day CLOSE benchmark using one price-only split-rebased series.
+
+    This is not an executable next-open path. Never divide adjusted future prices
+    by candidate_log.spot_close; entry and every future price share this same series.
     """
+    import path_labels as PL
+    signal = dt.date.fromisoformat(signal_date)
+    anchor = hist[hist.date == signal_date]
+    if len(anchor) != 1:
+        raise PL.LabelDataError(f'missing/duplicate signal-session close {signal_date}')
+    entry = float(anchor.iloc[0].Close)
+    rec = {'entry': entry, 'label_version': FORWARD_VERSION,
+           'price_basis': 'signal_close_benchmark_yahoo_price_only_split_rebased',
+           'price_hash': PL.price_hash(hist), 'price_inputs_json': PL.price_inputs(hist),
+           'observed_through': hist.iloc[-1].date}
+    for label, n_days in HORIZONS:
+        target = (signal + dt.timedelta(days=n_days)).isoformat()
+        future = hist[hist.date >= target]
+        if not future.empty:
+            rec[f'fwd_{label}_return'] = round((float(future.iloc[0].Close) / entry - 1) * 100, 6)
+            rec[f'fwd_{label}_date'] = future.iloc[0].date
+    if 'fwd_5d_return' in rec:
+        rec['fwd_5d_return_short'] = -rec['fwd_5d_return']
+    return rec
+
+
+def update_forward_returns(db_path: str) -> int:
+    """Write ONLY version-2 prospective benchmark rows; preserve legacy labels.
+
+    Partial provider failures roll back this transaction and fail the workflow.
+    Forward horizons are calendar days and include only completed regular sessions.
+    """
+    import path_labels as PL
+    from market_time import last_completed_session
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    today = dt.date.today()
-
-    # Find rows needing updates — only those old enough to have 1d+ returns
-    min_date = (today - dt.timedelta(days=1)).isoformat()
-    rows = conn.execute("""
-        SELECT id, ticker, scan_date, spot_close, sector, industry
-        FROM candidate_log
-        WHERE fwd_20d_return IS NULL
-        AND scan_date <= ?
-        ORDER BY scan_date
-    """, (min_date,)).fetchall()
-
-    if not rows:
-        print("  No candidate_log rows need forward return updates.")
-        conn.close()
-        return 0
-
-    print(f"  Found {len(rows)} candidate_log rows needing forward returns")
-
-    # Group by ticker
-    ticker_rows: Dict[str, list] = {}
-    for row in rows:
-        ticker = row["ticker"]
-        ticker_rows.setdefault(ticker, []).append(dict(row))
-
-    print(f"  Grouped into {len(ticker_rows)} tickers")
-
-    updated = 0
-    errors = 0
-
-    for i, (ticker, candidates) in enumerate(ticker_rows.items()):
-        try:
-            # Get enough price history to cover all forward windows
-            earliest_date = min(c["scan_date"] for c in candidates)
-            start_dt = dt.datetime.strptime(earliest_date, "%Y-%m-%d").date()
-            hist = yf.Ticker(ticker).history(
-                start=(start_dt - dt.timedelta(days=5)).isoformat(),
-                end=(today + dt.timedelta(days=1)).isoformat()
-            )
-
-            if hist.empty:
-                errors += 1
-                continue
-
-            hist.index = pd.to_datetime(hist.index).tz_localize(None)
-
-            for cand in candidates:
-                cand_date = dt.datetime.strptime(cand["scan_date"], "%Y-%m-%d")
-                spot_at = cand["spot_close"]
-                if not spot_at or spot_at <= 0:
-                    # Try to get spot from history
-                    snap = hist[hist.index >= cand_date]
-                    if snap.empty:
-                        continue
-                    spot_at = float(snap["Close"].iloc[0])
-                    if spot_at <= 0:
-                        continue
-
-                updates = {}
-                for label, n_days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10), ("20d", 20)]:
-                    # Forward return: price at signal + N CALENDAR days (first session on or
-                    # after) vs price at signal. Not N trading sessions; see module docstring.
-                    target_date = cand_date + dt.timedelta(days=n_days)
-                    if target_date.date() > today:
-                        continue  # not enough time has passed
-
-                    future = hist[hist.index >= target_date]
-                    if not future.empty:
-                        actual_date = future.index[0]
-                        actual_price = float(future["Close"].iloc[0])
-                        ret = round((actual_price - spot_at) / spot_at * 100, 4)
-                        updates[f"fwd_{label}_return"] = ret
-                        updates[f"fwd_{label}_date"] = actual_date.strftime("%Y-%m-%d")
-
-                # Compute short-side return for 5d
-                if "fwd_5d_return" in updates:
-                    updates["fwd_5d_return_short"] = -updates["fwd_5d_return"]
-
-                if updates:
-                    set_clauses = []
-                    params = []
-                    for k, v in updates.items():
-                        set_clauses.append(f"{k} = ?")
-                        params.append(v)
-                    params.append(cand["id"])
-
-                    conn.execute(
-                        f"UPDATE candidate_log SET {', '.join(set_clauses)} WHERE id = ?",
-                        params
-                    )
+    try:
+        ensure_forward_schema(conn)
+        asof = last_completed_session()
+        rows = conn.execute(f"""SELECT c.id,c.ticker,c.scan_date,c.sector,c.industry
+            FROM candidate_log c LEFT JOIN {FORWARD_TABLE} f ON c.id=f.id
+            WHERE c.scan_date BETWEEN ? AND ? AND f.fwd_20d_return IS NULL
+            ORDER BY c.scan_date""", (PROSPECTIVE_START, asof.isoformat())).fetchall()
+        groups = {}
+        for row in rows:
+            groups.setdefault(row['ticker'], []).append(dict(row))
+        updated, errors = 0, []
+        for ticker, candidates in groups.items():
+            try:
+                hist = yf.Ticker(ticker).history(start=min(c['scan_date'] for c in candidates),
+                    end=(asof + dt.timedelta(days=1)).isoformat(), interval='1d',
+                    auto_adjust=False, actions=True)
+                hist = PL.prepare_prices(hist, asof=asof)
+                if hist.empty:
+                    raise PL.LabelDataError('empty completed-session history')
+                if hist.iloc[-1].date != asof.isoformat():
+                    raise PL.LabelDataError(f'provider history stale: expected {asof}, got {hist.iloc[-1].date}')
+                for cand in candidates:
+                    rec = {**cand, **forward_labels(hist, cand['scan_date'])}
+                    cols = list(rec)
+                    conn.execute(f'INSERT INTO {FORWARD_TABLE} (' + ','.join(cols) + ') VALUES ('
+                        + ','.join('?' for _ in cols) + ') ON CONFLICT(id) DO UPDATE SET '
+                        + ','.join(f'{c}=excluded.{c}' for c in cols if c != 'id'), list(rec.values()))
                     updated += 1
-
-            time.sleep(0.3)  # rate limit
-
-            if (i + 1) % 50 == 0:
-                conn.commit()
-                print(f"  ... {i+1}/{len(ticker_rows)} tickers processed ({updated} rows updated)")
-
-        except Exception as e:
-            errors += 1
-            if errors <= 5:
-                print(f"  [ERROR] {ticker}: {e}")
-
-    # Compute sector/industry residuals
-    _compute_residuals(conn)
-
-    conn.commit()
-    conn.close()
-
-    print(f"  Forward returns updated: {updated} rows ({errors} ticker errors)")
-    return updated
+            except Exception as e:
+                errors.append(f'{ticker}: {type(e).__name__}: {e}')
+        if errors:
+            conn.rollback()
+            raise PL.LabelDataError('forward labeling incomplete; transaction rolled back: ' + '; '.join(errors[:20]))
+        _compute_residuals(conn, table=FORWARD_TABLE)
+        conn.commit()
+        print(f'[forward] v{FORWARD_VERSION}: wrote {updated} prospective calendar-day benchmark rows; legacy labels preserved')
+        return updated
+    finally:
+        conn.close()
 
 
 def _residuals(df: pd.DataFrame, key: str, excluded: tuple) -> pd.Series:
@@ -164,7 +140,7 @@ def _residuals(df: pd.DataFrame, key: str, excluded: tuple) -> pd.Series:
     return out
 
 
-def _compute_residuals(conn: sqlite3.Connection):
+def _compute_residuals(conn: sqlite3.Connection, table="candidate_log"):
     """Compute sector and industry residual returns for 5d horizon.
 
     sector_residual_5d = fwd_5d_return - median(fwd_5d_return for same sector on same date)
@@ -179,15 +155,14 @@ def _compute_residuals(conn: sqlite3.Connection):
     arrivals and re-labelled returns repair their peers too. Research-only columns: nothing
     in the live bot or the self-audit reads them.
     """
-    try:
-        df = pd.read_sql_query("""
+    if table not in ("candidate_log", FORWARD_TABLE):
+        raise ValueError("Unexpected residual table")
+    df = pd.read_sql_query(f"""
             SELECT id, scan_date, sector, industry, fwd_5d_return,
                    sector_residual_5d AS old_s, industry_residual_5d AS old_i
-            FROM candidate_log
+            FROM {table}
             WHERE fwd_5d_return IS NOT NULL
         """, conn)
-    except Exception:
-        return
 
     if df.empty:
         return
@@ -202,7 +177,7 @@ def _compute_residuals(conn: sqlite3.Connection):
     rows = [(None if pd.isna(s) else float(s), None if pd.isna(i) else float(i), int(k))
             for s, i, k in zip(new_s[changed], new_i[changed], df['id'][changed])]
     if rows:
-        conn.executemany("UPDATE candidate_log SET sector_residual_5d = ?, "
+        conn.executemany(f"UPDATE {table} SET sector_residual_5d = ?, "
                          "industry_residual_5d = ? WHERE id = ?", rows)
         print(f"  [RESIDUALS] recomputed from full peer groups: {len(rows)} rows changed")
 

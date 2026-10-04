@@ -1,105 +1,38 @@
 name: Heartbeat - alert if the scanner goes silent
-
-# WHY THIS EXISTS
-# On 2026-06-15 the native cron was removed from skew_am/skew_pm, leaving cron-job.org's
-# workflow_dispatch as the only trigger. Its PAT expired ~2026-06-28 and the scanner went
-# DEAD for 17 trading days (6/27-7/17) — zero scans, zero signals — and nobody noticed for
-# three weeks. The PAT expiring was not the real failure; the SILENCE was. This job makes
-# silence loud.
-#
-# 2026-10-04 (external audit F19): the only check was "any skew snapshot commit in 72h",
-# and the AM scan writes one. A PM pipeline (the one that SENDS SIGNALS) could fail every
-# day while the AM kept the heartbeat green. It now checks three separate things:
-#   1. the PM pipeline COMPLETED for the trading day just ended (last_scan_pm.json is
-#      written only after signal, records and database are all stored)
-#   2. a database snapshot was stored on the release in the last 30h
-#   3. any scan at all in the last 72h (the original check)
-# Runs at 01:30 UTC Tue-Sat = the evening (US Eastern) of each trading day, after the
-# PM run (15:45 New York time) AND its 21:07 UTC backup have had time to finish.
-# NOTE: the scanner has no holiday guard yet (it scans on market holidays), so holidays
-# still produce a completed PM pipeline. When the holiday guard lands, teach check 1
-# about holidays too, or it will alarm on every market holiday.
-
 on:
   schedule:
-    - cron: '30 1 * * 2-6'
+    - cron: '30 21 * * 1-5'
+      timezone: America/New_York
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 200
-
-      - name: Check pipeline freshness + alert if stale
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Check exact stored PM generation and decision
+        id: health
         env:
           GH_TOKEN: ${{ github.token }}
+        run: python db_state.py health
+      - name: Alert on failed health check
+        if: failure()
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          set -uo pipefail
-          PROBLEMS=""
-          add() { PROBLEMS="${PROBLEMS}• $1"$'\n'; echo "PROBLEM: $1"; }
-          NOW_TS=$(date -u +%s)
-
-          # 1. PM pipeline completed for the US trading day that just ended
-          DAY=$(TZ=America/New_York date +%Y-%m-%d)
-          DOW=$(TZ=America/New_York date +%u)           # 1=Mon .. 7=Sun
-          LAST_PM=$(python3 -c "import json;print(json.load(open('last_scan_pm.json')).get('latest_scan_date') or '')" 2>/dev/null || echo "")
-          echo "trading day (ET): $DAY  last completed PM pipeline: ${LAST_PM:-never}"
-          if [ "$DOW" -le 5 ] && [ "$LAST_PM" != "$DAY" ]; then
-            add "PM pipeline did NOT complete for $DAY (last completed: ${LAST_PM:-never}). No completed PM run = no signal decision. Check the skew_pm runs (15:45 New York time and the 21:07 UTC backup)."
-          fi
-
-          # 2. a database snapshot stored on the release recently, AND the exact generation
-          #    the PM run recorded in its completion marker is really there (re-audit:
-          #    "any recent asset" could be another run's, not the one the PM run stored)
-          ASSETS=$(gh release view db-state --json assets 2>/dev/null || echo '{"assets":[]}')
-          NEWEST=$(echo "$ASSETS" | jq -r '[.assets[] | select(.state=="uploaded")] | sort_by(.createdAt) | last | .createdAt // empty' 2>/dev/null || echo "")
-          if [ -z "$NEWEST" ]; then
-            add "could not read any database snapshot on the db-state release"
-          else
-            DB_AGE_H=$(( (NOW_TS - $(date -u -d "$NEWEST" +%s)) / 3600 ))
-            echo "newest database snapshot: $NEWEST (${DB_AGE_H}h ago)"
-            if [ "$DOW" -le 5 ] && [ "$DB_AGE_H" -gt 30 ]; then
-              add "newest stored database is ${DB_AGE_H}h old ($NEWEST): today's scans were not persisted"
-            fi
-          fi
-          GEN=$(python3 -c "import json;print(json.load(open('last_scan_pm.json')).get('db_generation') or '')" 2>/dev/null || echo "")
-          if [ "$DOW" -le 5 ] && [ "$LAST_PM" = "$DAY" ]; then
-            if [ -z "$GEN" ]; then
-              add "the PM completion marker names no database generation"
-            elif ! echo "$ASSETS" | jq -e --arg g "$GEN" '[.assets[] | select(.name==$g and .state=="uploaded")] | length > 0' >/dev/null; then
-              add "the database generation the PM run recorded ($GEN) is NOT on the release"
-            else
-              echo "PM-recorded database generation present: $GEN"
-            fi
-          fi
-
-          # 3. any scan at all in the last 72h (covers a normal weekend: Fri PM -> Mon PM)
-          LAST=$(git log -1 --format=%cI --grep="Skew tracker snapshot" || true)
-          if [ -z "$LAST" ]; then
-            add "no 'Skew tracker snapshot' commit found at all. Scanner may never have run."
-          else
-            AGE_H=$(( (NOW_TS - $(date -u -d "$LAST" +%s)) / 3600 ))
-            echo "last skew snapshot commit: $LAST (${AGE_H}h ago)"
-            if [ "$AGE_H" -gt 72 ]; then
-              add "scanner appears DEAD: last skew snapshot was ${AGE_H}h ago ($LAST). No scans = no signals."
-            fi
-          fi
-
-          if [ -n "$PROBLEMS" ]; then
-            MSG="🚨 TIER A HEARTBEAT ($DAY):"$'\n'"${PROBLEMS}Check the skew_am/skew_pm workflow runs in Actions."
-            if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-              curl -sS -X POST \
-                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d chat_id="${TELEGRAM_CHAT_ID}" \
-                --data-urlencode text="$MSG" >/dev/null && echo "Telegram alert sent."
-            else
-              echo "WARNING: Telegram secrets not set — could not send alert."
-            fi
-            exit 1   # also surface it as a red X in the Actions tab
-          fi
-          echo "Pipeline healthy."
+          python - <<'PY'
+          from alert import send_telegram
+          if not send_telegram('🚨 TIER A HEARTBEAT: the completed-session PM decision or its verified database generation is missing or unhealthy. Check the Actions logs.'):
+              raise SystemExit('Heartbeat transport failed or is not configured')
+          PY

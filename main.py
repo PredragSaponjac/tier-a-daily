@@ -10,7 +10,7 @@ Daily run (after Skew Tracker PM scan + v3 AR scanner produces Tier A candidates
 CLI:
   python main.py                        # latest scan, send to Telegram
   python main.py --scan-date YYYY-MM-DD # REPLAY a past date, READ-ONLY (implies --dry-run)
-  python main.py --scan-date D --live   # replay that really sends/tracks (not point-in-time!)
+  python main.py --scan-date D --live   # current Eastern session only
   python main.py --dry-run              # don't send, just print
   python main.py --no-dp                # skip dark pool pulls (faster)
   python main.py --min-score 3          # override parameters.json min_filter_score
@@ -21,16 +21,18 @@ import argparse
 import os
 from dotenv import load_dotenv
 
-from scanner_reader import read_tier_a
+from scanner_reader import read_tier_a, SKEW_DB
 from uw_filter import enrich_candidates
 from vetoes import run_vetoes
-from alert import format_signal, format_no_signal, format_quota_blocked, format_watch_list, send_telegram
+from alert import format_signal, format_no_signal, format_quota_blocked, format_watch_list, send_telegram_status
 import uw_client as uwc
 import parameters as P
 import position_tracker as PT
 import archive
 import sheet_sync
 import x_post
+from state_lock import checkpoint, portfolio_lock
+from market_time import now_eastern, is_session
 
 
 def select_taken(tradeable, top, open_tickers, sel, rank_key):
@@ -57,6 +59,17 @@ def select_taken(tradeable, top, open_tickers, sel, rank_key):
     return ranked[:room], [c['ticker'] for c in ranked[room:]]
 
 
+def reserved_tickers():
+    """Undelivered admissions reserve capacity even before tracking succeeds."""
+    names = {p['ticker'] for p in PT.list_open()}
+    for day in archive.list_archives():
+        rec = archive.load_archive(day)
+        if rec.get('delivery', {}).get('positions') in ('pending', 'failed', 'inflight'):
+            for spec in rec.get('outbox', {}).get('positions', []):
+                names.add(spec['candidate']['ticker'])
+    return names
+
+
 def effective_dry_run(scan_date, live: bool, dry_run: bool) -> bool:
     """AUDIT F16 (2026-10-04). Pure, so preflight can test it. --scan-date was documented as
     "backtest" but only changed the date: it still sent Telegram/X, opened positions and
@@ -65,149 +78,127 @@ def effective_dry_run(scan_date, live: bool, dry_run: bool) -> bool:
     return bool(dry_run or (scan_date and not live))
 
 
-# ---------------------------------------------------------------- the decision OUTBOX
-# RE-AUDIT R2/R6 (2026-10-04). Before: a decision was sent first and archived afterwards,
-# so a crash between an accepted Telegram send and the archive (e.g. a failed position
-# write) left no record, and the retry sent the same signal again. Failed "no signal"
-# messages returned normally and were never retried, and a rejected X entry was never
-# retried at all. Now:
-#   1. the decision is ARCHIVED FIRST, with the exact texts and position specs (the outbox)
-#      and every channel 'pending';
-#   2. run_outbox() delivers from that record, in order, storing each channel's result:
-#      Telegram -> positions (only after Telegram succeeded) -> X;
-#   3. a retry RESUMES the archived decision (only its unfinished channels), never a new
-#      decision from a fresh rescan, and X is checked against x_posted.log before posting.
-# Residual, stated: a crash in the instant between Telegram accepting a message and its
-# status being written leaves it 'pending', and the retry sends it again (Telegram is the
-# private channel, so that duplicate is accepted). X is never re-posted on an unknown result.
+# Decisions are durably recorded before any transport. Inflight/unknown delivery
+# is never automatically repeated: the user reconciles its receipt explicitly.
 X_MAX_ATTEMPTS = 3
-RETRYABLE = {'telegram': ('pending', 'failed'), 'positions': ('pending', 'failed'),
-             'x': ('pending', 'rejected')}
+RETRYABLE = {'telegram': ('pending', 'failed', 'rejected'),
+             'positions': ('pending', 'failed'), 'x': ('pending', 'rejected'),
+             'sheet': ('pending', 'failed')}
+ATTENTION = ('inflight', 'unknown', 'manual_required', 'not_configured', 'gave_up')
 
 
-def _x_autopost() -> bool:
+def _x_autopost():
     return os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() in ('1', 'true', 'yes')
 
 
-def outbox_pending(delivery: dict) -> bool:
-    return any((delivery or {}).get(ch) in st for ch, st in RETRYABLE.items())
+def outbox_pending(delivery):
+    return any((delivery or {}).get(ch) in states for ch, states in RETRYABLE.items())
 
 
-def prior_state(scan_date: str):
-    """('none', None)            nothing decided for this date yet
-       ('done', rec)             decided, nothing left to deliver
-       ('resume', rec)           an archived decision with undelivered channels
-       ('legacy_retry', rec)     pre-outbox archive that recorded a delivery failure
-    Pure apart from reading the archive, so preflight can test it."""
+def prior_state(scan_date):
     rec = archive.load_archive(scan_date)
     if rec is None:
         return 'none', None
-    if 'delivery' not in rec:                  # archives written before 2026-10-04
+    if 'delivery' not in rec:
         return ('legacy_retry', rec) if 'DELIVERY FAILED' in (rec.get('notes') or '') else ('done', rec)
-    return ('resume', rec) if outbox_pending(rec['delivery']) else ('done', rec)
+    d = rec['delivery']
+    if any(d.get(ch) in ATTENTION for ch in RETRYABLE):
+        return 'attention', rec
+    return ('resume', rec) if outbox_pending(d) or not d.get('complete') else ('done', rec)
 
 
-def run_outbox(scan_date: str) -> bool:
-    """Deliver whatever the archived decision for scan_date still has pending. True when no
-    retryable channel remains (the run may complete), False when a retry is needed."""
+def _save_delivery(scan_date, **fields):
+    rec = archive.update_delivery(scan_date, **fields)
+    checkpoint()
+    return rec['delivery']
+
+
+def run_outbox(scan_date):
     rec = archive.load_archive(scan_date)
-    d, box = rec.get('delivery') or {}, rec.get('outbox') or {}
-    # 1. Telegram, required for every decision. A failure stops here: nothing is opened and
-    #    nothing is published before the user has been told.
+    if rec is None or not isinstance(rec.get('outbox'), dict):
+        raise RuntimeError('Missing durable decision outbox')
+    d, box = rec.get('delivery') or {}, rec['outbox']
+    if any(d.get(ch) in ATTENTION for ch in RETRYABLE):
+        _save_delivery(scan_date, complete=False)
+        print('::error::Delivery outcome requires receipt reconciliation; no automatic resend')
+        return False
     if d.get('telegram') in RETRYABLE['telegram']:
         n = int(d.get('telegram_attempts', 0)) + 1
-        ok = send_telegram(box['telegram'])
-        d = archive.update_delivery(scan_date, telegram='sent' if ok else 'failed', telegram_attempts=n)['delivery']
-        print(f"Telegram send: {'OK' if ok else 'FAILED'} (attempt {n})")
-        if not ok:
-            print('::error::Telegram delivery failed; nothing opened or posted; the retry resends it')
+        d = _save_delivery(scan_date, telegram='inflight', telegram_attempts=n, complete=False)
+        status, receipt = send_telegram_status(box['telegram'])
+        d = _save_delivery(scan_date, telegram=status, telegram_id=receipt)
+        if status != 'sent':
+            print(f'::error::Telegram delivery {status}; decision remains incomplete')
             return False
-    # 2. Positions, idempotent on (ticker, entry_date), at the ARCHIVED entry levels.
     if d.get('positions') in RETRYABLE['positions']:
         try:
             for spec in box.get('positions', []):
-                added = PT.add_position(spec['candidate'], T1=spec['T1'], T2=spec['T2'], T3=spec['T3'],
-                                        STOP=spec['STOP'], params_version=spec['params_version'])
-                print(f"Position tracker: {spec['candidate']['ticker']} "
-                      f"{'added' if added else 'already tracking (idempotent skip)'}")
-        except Exception as e:
-            archive.update_delivery(scan_date, positions='failed', positions_error=f'{type(e).__name__}: {e}'[:300])
-            print(f'::error::position tracking failed ({e}); the retry resumes it')
+                PT.add_position(spec['candidate'], T1=spec['T1'], T2=spec['T2'], T3=spec['T3'],
+                                STOP=spec['STOP'], params_version=spec['params_version'],
+                                entry_policy=spec.get('entry_policy', 'legacy_signal_price'))
+        except Exception as exc:
+            _save_delivery(scan_date, positions='failed', positions_error=type(exc).__name__)
             return False
-        d = archive.update_delivery(scan_date, positions='tracked')['delivery']
-    # 3. X, the public entry. Retried only after a DEFINITE rejection and never if
-    #    x_posted.log already holds it; an unanswered post is left for a human check.
+        d = _save_delivery(scan_date, positions='tracked')
     if d.get('x') in RETRYABLE['x']:
         text = box['x']
         n = int(d.get('x_attempts', 0)) + 1
-        tid = x_post.already_posted(text.splitlines()[0], since=scan_date)
-        status = 'posted' if tid else None
-        if status is None:
-            status, tid = x_post.post_to_x_status(text)
-        if status == 'posted':
-            archive.update_delivery(scan_date, x='posted', x_attempts=n, x_id=tid)
-            print('X post: OK')
+        receipt = x_post.already_posted(text.splitlines()[0], since=scan_date)
+        if receipt:
+            status = 'posted'
         else:
-            os.makedirs('x_drafts', exist_ok=True)
-            draft = f"x_drafts/{scan_date}_{box.get('featured', 'signal')}.txt"
-            with open(draft, 'w', encoding='utf-8') as fh:
-                fh.write(text)
-            final = status != 'rejected' or n >= X_MAX_ATTEMPTS
-            st = ('gave_up' if status == 'rejected' else status) if final else 'rejected'
-            archive.update_delivery(scan_date, x=st, x_attempts=n, x_draft=draft)
-            print(f'::warning::X entry post {st} (attempt {n}); draft saved to {draft}')
-            if n == 1 or final:
-                why = {'rejected': 'X rejected it', 'unknown': 'X did not answer — it MAY be live; check first',
-                       'not_configured': 'no X credentials'}.get(status, status)
-                send_telegram(f"⚠️ {box.get('featured')} ENTRY is NOT confirmed on X ({why}). The position "
-                              f"is tracked; the public entry is missing. Draft: {draft}."
-                              + (' The next run retries.' if not final else ' Post it by hand.'))
-            if not final:
-                return False
-    if box.get('positions'):
+            d = _save_delivery(scan_date, x='inflight', x_attempts=n, complete=False)
+            status, receipt = x_post.post_to_x_status(text)
+        if status == 'posted':
+            d = _save_delivery(scan_date, x='posted', x_attempts=n, x_id=receipt)
+        else:
+            draft = archive.save_draft(scan_date, box.get('featured') or 'signal', text)
+            final_status = 'gave_up' if status == 'rejected' and n >= X_MAX_ATTEMPTS else status
+            _save_delivery(scan_date, x=final_status, x_attempts=n, x_draft=str(draft), complete=False)
+            print(f'::error::X delivery {final_status}; saved draft, pipeline incomplete')
+            return False
+    if d.get('sheet') in RETRYABLE['sheet']:
         try:
-            sheet_sync.sync_all()
-        except Exception as e:
-            print(f'Sheet sync skipped: {e}')
-    return True
+            if sheet_sync.sync_all() is False:
+                raise RuntimeError('Sheet synchronization rejected')
+        except Exception as exc:
+            _save_delivery(scan_date, sheet='failed', sheet_error=type(exc).__name__)
+            return False
+        d = _save_delivery(scan_date, sheet='synced')
+    complete = (d.get('telegram') == 'sent' and d.get('positions') in ('tracked', 'n/a')
+                and d.get('x') in ('posted', 'draft', 'n/a') and d.get('sheet') in ('synced', 'n/a'))
+    _save_delivery(scan_date, complete=complete)
+    return complete
 
 
 def record_and_deliver(scan_date, enriched, picked, min_score, notes, telegram_text, *,
                        taken=(), x_text=None, featured=None, context=None):
-    """Archive the decision FIRST (with its outbox), then deliver it. Exits non-zero when a
-    channel still needs a retry, so the PM completion marker is not written and the backup
-    run resumes it."""
-    import parameters as _P
     specs = []
-    tps = _P.tp_pcts()
-    for t in taken:
-        entry = t['spot_close']
-        f = t.get('filter') or {}
-        specs.append({'candidate': {'ticker': t['ticker'], 'scan_date': t['scan_date'], 'spot_close': entry,
-                                    'filter': {'score': f.get('score'), 'raw': f.get('raw') or {}}},
-                      'T1': entry * (1 + tps['tp1'] / 100), 'T2': entry * (1 + tps['tp2'] / 100),
-                      'T3': entry * (1 + tps['tp3'] / 100), 'STOP': entry * (1 + _P.stop_pct() / 100),
-                      'params_version': _P.version()})
+    tps = P.tp_pcts()
+    for candidate in taken:
+        reference = candidate['spot_close']
+        specs.append({'candidate': candidate, 'entry_policy': 'next_regular_open',
+                      'T1': reference * (1 + tps['tp1'] / 100),
+                      'T2': reference * (1 + tps['tp2'] / 100),
+                      'T3': reference * (1 + tps['tp3'] / 100),
+                      'STOP': reference * (1 + P.stop_pct() / 100),
+                      'params_version': P.version()})
+    x_state = 'pending' if x_text is not None else 'n/a'
     if x_text is not None and not _x_autopost():
-        # X auto-posting gated off: the post is PREPARED for manual review, never sent.
-        os.makedirs('x_drafts', exist_ok=True)
-        draft = f'x_drafts/{scan_date}_{featured}.txt'
-        with open(draft, 'w', encoding='utf-8') as fh:
-            fh.write(x_text)
-        print(f'X auto-post DISABLED (safe default) — draft saved to {draft} for manual review.')
+        archive.save_draft(scan_date, featured or 'signal', x_text)
         x_state = 'draft'
-    else:
-        x_state = 'pending' if x_text is not None else 'n/a'
-    delivery = {'telegram': 'pending', 'positions': 'pending' if specs else 'n/a', 'x': x_state}
-    outbox = {'telegram': telegram_text, 'x': x_text, 'positions': specs, 'featured': featured}
+    delivery = {'telegram': 'pending', 'positions': 'pending' if specs else 'n/a',
+                'x': x_state, 'sheet': 'pending' if specs else 'n/a', 'complete': False}
+    box = {'telegram': telegram_text, 'x': x_text, 'positions': specs, 'featured': featured}
     archive.archive_daily_run(scan_date, enriched, picked, min_score, P.version(), notes=notes,
                               taken_tickers=[t['ticker'] for t in taken], delivery=delivery,
-                              outbox=outbox, context=context)
+                              outbox=box, context=context)
+    checkpoint()  # remote durability is mandatory in configured live workflows
     if not run_outbox(scan_date):
         raise SystemExit(1)
 
 
-def main():
+def _main():
     p = argparse.ArgumentParser()
     p.add_argument('--scan-date', default=None, help='YYYY-MM-DD (default: latest)')
     p.add_argument('--dry-run', action='store_true', help='format but do not send')
@@ -219,16 +210,24 @@ def main():
     p.add_argument('--vol-days', type=int, default=None,
                    help='override options-volume pull size (for backtesting old dates)')
     p.add_argument('--live', action='store_true',
-                   help='with --scan-date: really send and track. A replay uses TODAY\'s earnings '
-                        'calendar and option chains, not what was known on that date')
+                   help='with --scan-date: admit only the current Eastern session')
     p.add_argument('--resend', action='store_true',
                    help='deliver even if this scan_date was already decided (normally refused)')
     args = p.parse_args()
     if effective_dry_run(args.scan_date, args.live, args.dry_run) and not args.dry_run:
-        print(f'--scan-date {args.scan_date}: REPLAY is READ-ONLY (implies --dry-run). Vetoes use '
-              f'today\'s earnings calendar and option chains, so it is not point-in-time. '
-              f'Pass --live to really send/track.')
+        print(f'--scan-date {args.scan_date}: READ-ONLY as-recorded archive preview.')
         args.dry_run = True
+    if args.scan_date and not args.live:
+        # Historical preview is an as-recorded archive, never a current-world requery.
+        import json
+        recorded = archive.load_archive(args.scan_date)
+        if recorded is None:
+            print('No as-of archive exists for this date; a point-in-time replay is unavailable.')
+            raise SystemExit(2)
+        print(json.dumps(recorded, indent=2, ensure_ascii=False))
+        return
+    if args.scan_date and args.live and args.scan_date != now_eastern().date().isoformat():
+        raise ValueError('Live admission only accepts the current Eastern trading date')
     min_score = args.min_score if args.min_score is not None else P.min_filter_score()
 
     load_dotenv()
@@ -242,8 +241,10 @@ def main():
 
     # Production cron guard: only act on TODAY's scan
     if args.require_today:
-        import datetime as _dt
-        today_str = _dt.date.today().isoformat()
+        today_str = now_eastern().date().isoformat()
+        if not is_session(today_str):
+            print('No regular trading session today.')
+            return
         if scan_date != today_str:
             print(f"--require-today: latest scan {scan_date} != today {today_str}. Exit (probably holiday/weekend).")
             return
@@ -257,6 +258,9 @@ def main():
             print(f"Already decided for {scan_date} (archived {prior.get('run_at')}, tracked "
                   f"{prior.get('taken_tickers')}): NOT delivering again. --resend overrides.")
             return
+        if state == 'attention':
+            print('::error::Prior delivery needs reconciliation; use outbox_cli.py after checking receipts')
+            raise SystemExit(1)
         if state == 'resume':
             print(f"Resuming the archived decision for {scan_date} (run {prior.get('run_id')}): "
                   f"{prior.get('delivery')}")
@@ -293,7 +297,7 @@ def main():
         c['legs'] = LEGS.assess(c, sel['strong_skew_max'], sel['strong_vol_cushion_min'])
         # DATA-QUALITY gate (earned by SMMT 6/9): reject signals off a noisy/thin
         # options chain — the legs are only as trustworthy as the data they're computed on.
-        c['noise'] = DQ.assess_noise(c['ticker'], c['scan_date'],
+        c['noise'] = DQ.assess_noise(c['ticker'], c['scan_date'], db_path=str(SKEW_DB),
                                      std_threshold=sel['skew_noise_std_max'])
         # EDGE-VALIDATION logging (2026-07-27 edge hunt) — research only, has NO
         # effect on selection. Scored after 10-20 fresh signals via edge_validation.py.
@@ -307,7 +311,8 @@ def main():
     vetoed = [c for c in enriched if not c['vetoes']['pass']]
     tradeable = [c for c in survivors
                  if ((not sel['require_strong_leg']) or c['legs']['tradeable'])
-                 and not c['noise']['noisy']]
+                 and c['noise'].get('status') == 'pass' and not c['noise']['noisy']
+                 and c.get('screen_version') == P.all_params()['screen']['version']]
 
     print(f"\n{'rank':>4s} {'tkr':6s} {'UW':>4s} {'veto':5s} {'legs':10s} note")
     for i, c in enumerate(enriched, 1):
@@ -378,14 +383,10 @@ def main():
     # Day pool for runner-up context
     day_pool = [c for c in survivors if c['ticker'] != top['ticker']]
 
-    # TAKE-ALL regime (parameters 1.1.0, user decision 2026-09-02). Four independent tests
-    # showed the one-per-day pick has NO skill and the names we skipped carried the return
-    # (clean universe: PICKED R +0.023 vs SKIPPED +0.518). So every gate-passing name is
-    # tracked, in rank order, until open + new reaches max_concurrent. `top` stays the
-    # featured name for the alert/X post and the archive's picked_ticker (the self-audit's
-    # picked-vs-skipped ledger still needs to know what the OLD rule would have done).
-    # A ticker already open is never doubled up. Gates, exits, thresholds: unchanged.
-    open_tks = {p['ticker'] for p in PT.list_open()}
+    # Take-all is the configured paper policy. Historical comparisons do not establish
+    # a net edge or ranking skill. Open positions and undelivered reservations count
+    # toward the same cap; picked_ticker retains the descriptive ranking result.
+    open_tks = reserved_tickers()
     taken, skipped_for_cap = select_taken(tradeable, top, open_tks, sel, _rank_key)
     if sel.get('take_all_qualified'):
         print(f"TAKE-ALL: {len(tradeable)} tradeable, {len(open_tks)} already open, "
@@ -424,16 +425,21 @@ def main():
     # X auto-posting is gated by ENABLE_X_AUTOPOST (see the 2026-06-12 RUM incident: a
     # micro-cap whose skew flipped bearish intraday was auto-posted before anyone could
     # look). Gated off, the post is prepared as a draft for manual review, never sent.
-    # The decision (texts, positions at the archived entry levels) is archived FIRST, then
+    # The decision (texts and next-open reservations) is archived FIRST, then
     # delivered: Telegram -> positions (only once Telegram succeeded: no position is ever
     # opened unannounced) -> X. A failure leaves the run red and the backup run resumes
     # exactly this decision (audit F19, re-audit R2/R6).
     record_and_deliver(scan_date, enriched, top['ticker'], min_score, '', msg, taken=taken,
                        x_text=x_post.format_signal_for_x(featured, day_pool, taken=taken),
                        featured=featured['ticker'],
-                       context={'portfolio_before': sorted(open_tks),
+                       context={'portfolio_before': PT.list_open(), 'reserved_tickers': sorted(open_tks),
                                 'max_concurrent': sel.get('max_concurrent', 6),
                                 'cap_skipped': skipped_for_cap})
+
+
+def main():
+    with portfolio_lock():
+        _main()
 
 
 if __name__ == '__main__':

@@ -34,11 +34,8 @@ def _next_trading_day_phrase(scan_date: str) -> str:
 
 
 TRACK_RECORD_LINE = (
-    "📊 Live track record (skew-tracker AR-style, since 4/20):\n"
-    "AR ✅ +7% | CRSP ✅ TP1 | SMMT ✅ TP1 | SYM ❌ -7% | VKTX ✅ TP1\n"
-    "Backtest n=63: 67% TP1 hit rate, 71% profitable, +5.2% avg/trade"
-    # Sheet URL intentionally NOT included — Telegram subscribers don't need it.
-    # X posts include sheet URL (public marketing/proof) — see x_post.py format_signal_for_x.
+    "📊 Paper research record. Historical cohorts used different execution assumptions; "
+    "a prospective net trading edge has not been established."
 )
 
 DISCLAIMER = (
@@ -97,8 +94,8 @@ def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None
     lines.append("")
     lines.append("")
     lines.append("SKEW SETUP — THE SIGNAL (Tier A gates passed):")
-    lines.append(f"• Spot ${entry:.2f} ({c['spot_return_pct']:+.1f}% / 5d)")
-    lines.append(f"• skew_change_5d: {c['skew_change_5d']:+.1f} (Tier A bar ≤ −7)")
+    lines.append(f"• Reference spot ${entry:.2f} ({c['spot_return_pct']:+.1f}% / 9 sessions)")
+    lines.append(f"• Skew change / 9 sessions: {c['skew_change_5d']:+.1f} (Tier A bar ≤ −7)")
     lines.append(f"• near_skew: {c['near_skew']:+.1f} (Tier A bar ≤ −7)")
     lines.append(f"• near_dte: {c['near_dte']}")
     lines.append(f"• Put wall: ${pwall} (spot {'+' if cushion>=0 else ''}{cushion:.1f}% {'above' if cushion>=0 else 'below'})")
@@ -135,26 +132,18 @@ def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None
         lines.append(f"{check} {label_map.get(key, key+': '+val_str)}")
     if not uw_missing:
         lines.append("")
-    # Only make the strong statistical-pattern claim when the flow actually
-    # confirms it (score >= 3). On weaker scores, state honestly that the skew
-    # setup is present but flow is not confirming - never attach the p=0.0007
-    # research claim to a setup that doesn't match the full pattern.
+    # Report the measured conditions without an unvalidated significance claim.
     if uw_missing:
         pass                      # section omitted entirely — no UW data to report
     elif score >= 3:
-        lines.append(f"→ Flow CONFIRMS ({score}/4): matches the 'structural unwind + capitulation'")
-        lines.append("  research pattern (Bonferroni-significant, p=0.0007) — adds conviction on top.")
+        lines.append(f"→ UW conditions met: {score}/4. Used for ranking; prospective benefit remains unproven.")
     else:
-        lines.append(f"→ Flow {score}/4: no extra institutional confirmation today. This is a BONUS")
-        lines.append("  layer, NOT a requirement — the Tier A skew setup above IS the signal and")
-        lines.append("  stands on its own. (A 0/4 does not make the setup weak.)")
+        lines.append(f"→ UW conditions met: {score}/4. Supplementary ranking data; eligibility uses the gates above.")
     if not uw_missing:
         lines.append("")
-    lines.append(f"ENTRY: ${entry:.2f}")
-    lines.append(f"🎯 T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%) — bot will auto-close here")
-    lines.append(f"   T2 (hold longer): ${T2:.2f} (+{tps['tp2']:.0f}%) — optional")
-    lines.append(f"   T3 (stretch):     ${T3:.2f} (+{tps['tp3']:.0f}%) — optional")
-    lines.append(f"🛑 STOP: ${STOP:.2f} ({stop_p:+.0f}%) HARD")
+    lines.append('PAPER ENTRY: next regular-session open; price pending.')
+    lines.append(f"🎯 Target: +{tps['tp1']:.0f}% from that open. Stop: {stop_p:+.0f}% (gaps may lose more).")
+    lines.append('Completed daily bars; a bar touching both barriers is flagged ambiguous and booked as a stop.')
     lines.append("")
     lines.append("⏱️ Short-term pullback play — exits on target (win) or stop (loss), no time limit.")
     # EDGE-VALIDATION block — research logging only, NOT part of the signal.
@@ -169,20 +158,17 @@ def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None
             lines.append(f"   stop width: −7% = {e['stop_atr']}x ATR (ATR {e['atr_pct']}%)"
                          f" | a 2×ATR stop would be −{e['atr2x_stop_pct']}%{warn}")
     lines.append("")
-    # TAKE-ALL regime (2026-09-02): every gate-passing name is tracked, not only this one.
-    # The old "runner-up" line is replaced by the full list with each name's levels.
+    # Additional reservations use the same next-open assumption as the featured name.
     others = [t for t in (taken or []) if t.get('ticker') != c['ticker']]
     if others:
         lines.append(f"📋 ALSO TRACKED TODAY — same rules, equal weight ({len(others)} more):")
         for t in others:
-            e = t.get('spot_close') or 0
             Lt = t.get('legs', {}) or {}
-            lines.append(f"   ${t['ticker']}  entry ${e:.2f} → T1 ${e*(1+tps['tp1']/100):.2f} / STOP ${e*(1+stop_p/100):.2f}"
+            lines.append(f"   ${t['ticker']}  next-open paper entry pending; T1 +{tps['tp1']:g}% / STOP {stop_p:g}%"
                          f"   skew {t.get('skew', 0):+.1f}  cushion {Lt.get('vol_cushion') or 0:.1f}x  legs {int(Lt.get('strong_skew', 0)) + int(Lt.get('strong_cushion', 0))}")
         cap = int(P.selection_params().get('max_concurrent', 6))
         lines.append(f"   Size EVERY position at 1/{cap} of the book ({cap} = the concurrent cap, not today's count) —")
-        lines.append("   that spreads the same risk across names; it does not add risk. Four separate tests showed our")
-        lines.append("   one-per-day pick had no skill and the names we skipped carried the return — so we track them all.")
+        lines.append('   allocation is fixed per reserved slot. The take-all policy remains unproven.')
         lines.append("")
     elif day_pool and len(day_pool) > 1 and not taken:
         runner_up = next((x for x in day_pool if x['ticker'] != c['ticker']), None)
@@ -295,12 +281,22 @@ def format_close(ticker: str, entry: float, exit_price: float, reason: str) -> s
 
 
 def send_telegram(message: str, chat_id: str = None, bot_token: str = None) -> bool:
-    """Send to Telegram. Returns True on success."""
+    """Compatibility wrapper; durable outboxes use the structured result below."""
+    return send_telegram_status(message, chat_id, bot_token)[0] == 'sent'
+
+
+def send_telegram_status(message: str, chat_id: str = None, bot_token: str = None) -> tuple:
+    """Return (sent/rejected/unknown/not_configured, receipt).
+
+    A timeout, server error or malformed success response can follow acceptance.
+    Unknown outcomes must be reconciled rather than blindly resent. Exception
+    strings can contain the credential-bearing URL and are deliberately omitted.
+    """
     bot_token = bot_token or os.environ.get('TELEGRAM_BOT_TOKEN')
     chat_id = chat_id or os.environ.get('TELEGRAM_CHAT_ID')
     if not bot_token or not chat_id:
         print('[telegram] missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID')
-        return False
+        return 'not_configured', None
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     try:
         resp = requests.post(url, json={
@@ -309,9 +305,12 @@ def send_telegram(message: str, chat_id: str = None, bot_token: str = None) -> b
             'disable_web_page_preview': True,
         }, timeout=15)
         if resp.status_code == 200:
-            return True
-        print(f'[telegram] {resp.status_code}: {resp.text[:200]}')
-        return False
+            result = resp.json()
+            if result.get('ok') is True:
+                return 'sent', (result.get('result') or {}).get('message_id')
+            return ('rejected', None) if result.get('ok') is False else ('unknown', None)
+        print(f'[telegram] HTTP {resp.status_code}')
+        return ('rejected', None) if 400 <= resp.status_code < 500 else ('unknown', None)
     except Exception as e:
-        print(f'[telegram] error: {e}')
-        return False
+        print(f'[telegram] response unknown ({type(e).__name__}); reconciliation required')
+        return 'unknown', None

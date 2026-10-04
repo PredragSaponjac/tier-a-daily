@@ -1,73 +1,114 @@
 # Tier A Daily
 
-Daily options-skew reversal signal. Built on the Skew Tracker methodology: each weekday PM
-scan of ~660 optionable names flags Tier A candidates, which this bot gates, tracks and
-publishes. Every entry and every close (wins and losses alike) goes to Telegram, X and a
-public Google Sheet.
+Daily stock-screen research and paper position tracking. The bot sends alerts and
+records assumed outcomes; it does not place broker orders or establish profitability.
 
-## What it does (parameters 1.1.0)
+Audit findings, implemented remedies and verification limits are recorded in
+[AUDIT_REMEDIATION.txt](AUDIT_REMEDIATION.txt).
 
-1. Reads the day's Tier A candidates from the PM scan (bullish skew reversal after a
-   washout: near-dated skew ≤ −7, skew change ≤ −7 and spot down ≥ 8% over the scan's
-   lookback window, put-wall OI not rising). The column is named `skew_change_5d`, but the
-   2026-10-04 audit (F01) found the window actually spans 9 sessions; all evidence to date
-   was gathered on that 9-session window.
-2. Applies the gates: at least one strong leg (structural skew or vol cushion), not below the
-   put wall, stale-wall cap, chain-noise filter, earnings/liquidity vetoes
-3. **Takes every name that passes** (since 2026-09-02), up to 6 open positions, each sized at
-   1/6 of the book. Ranking only decides who yields to the cap; it has no measured skill.
-4. Monitors intraday: exits at **+10% (TP1)** or **−7% (stop)**, nothing else. TP2/TP3 are shown
-   for readers who hold longer, at their own discretion.
-5. Logs every signal, decision and outcome; a weekly self-audit scores registered ideas on
-   new data only and never changes the rules by itself.
+## Prospective execution contract (v2, from 2026-10-05)
 
-## How exits are booked
+- The existing washout screen uses **nine trading-session intervals**, not five.
+  Ten consecutive XNYS session observations are required. Sigma annualization uses
+  the same session count. Legacy SQLite column `skew_change_5d` remains an alias;
+  `screen_version` and `window_sessions` identify the actual calculation.
+- Earnings, options OI and chain-noise gates must have verified data. Unknown values
+  block admission. UW is supplementary ranking information, not a required gate.
+- Eligible names reserve up to six slots, including pending entries. Each paper slot
+  represents 1/6 of the book. Ranking and take-all benefits remain unproven.
+- A signal records a reference quote and its provenance. New paper entries use the
+  **next regular-session open**; a missing opening bar blocks activation rather than
+  substituting a later price. Existing trades keep their recorded entry assumptions.
+- Monitoring and research use completed regular-session daily OHLC. A target/stop
+  dual touch is marked ambiguous and conservatively booked as STOP. Gap-down stops
+  fill at the opening price; target gaps book the target. These are explicit paper
+  assumptions, not recovered intraday order or actual brokerage executions.
+- Positions have no timeout. Unresolved research paths are censored, not counted as
+  realized wins/losses. Stops/targets retain +10%/-7% default widths.
+- Prices use a consistent split basis and price-only returns; dividends are recorded
+  separately. Daily OHLC cannot recover exact exit-bar excursions, so future MAE/MFE
+  reports show bounds. Historical records remain labeled as legacy/unverified.
 
-One shared rule (`exits.py`) for the live monitor, the research labels and the legacy
-backtest/exit-model scripts: a daily bar touching both levels is booked as the stop (an
-assumption, flagged on every such row: a daily bar cannot say which came first); a gap
-through the stop fills at the open; a gap through the target is booked at the target. No
-time limit anywhere: a position exits only at the target or the stop, like the live book.
+XNYS holidays, early closes and daylight saving are modeled with exchange_calendars.
+All scheduled market-related jobs use `America/New_York`, including GitHub cron.
 
-MAE/MFE ("worst drawdown held through", "best unrealised reached") exclude prices beyond the
-exit fill. On the exit day the OTHER side of the bar is still included, because daily data
-cannot show whether it came before or after the exit; for that one day the numbers are
-bounds, not exact. The monitor also timestamps each new extreme it observes live.
+## Durable state and delivery
 
-## Performance
+Decisions, full candidate inputs, parameter snapshots, portfolio context and exact
+message bodies are archived **before delivery**. Immutable run records and delivery
+transition events accompany the latest `signals/YYYY-MM-DD.json` view.
 
-See the live track record (Google Sheet, linked in every post) and `audit_latest.json`.
-The May 2026 backtest headline previously shown here (n=63, +5.2%/trade) predates the
-current gates and universe and is superseded. As of the 2026-10-04 external audit, the
-all-qualifier research cohort does not yet establish an edge statistically: its 95%
-interval for mean P&L per trade includes zero.
+Live workflows checkpoint pending/inflight/acknowledged delivery state to Git before
+continuing. The short signal and monitor jobs share a portfolio writer queue; the
+long scanner uses a separate database writer queue. A refresh or checkpoint failure
+stops delivery. Local processes use a file lock as well.
 
-## Data and infrastructure
+Definite rejection can be retried. A timeout, interrupted inflight send or other
+unknown result needs receipt reconciliation; the bot does not blindly resend it.
+Entry receipts can be reconciled without sending anything:
 
-- `skew_history.db` lives as versioned, digest-verified snapshots on the `db-state` release
-  (`db_state.py`); earlier generations are kept, and a stale writer cannot overwrite a newer one.
-  A writer that loses a simultaneous upload withdraws its copy and retries.
-- AM scan, PM scan and the weekly audit share one writer queue; the PM run has a guarded
-  backup run and marks itself complete only after records and database are stored.
-- Delivery runs from OUTBOXES: each day's decision is archived before anything is sent
-  (`signals/`, with an immutable copy per run in `signals/runs/`), and each close is
-  recorded before it is announced (`closed_trades.json`). Every channel's result is stored,
-  so a retry resumes the same decision instead of deciding or posting again; X is retried
-  only after a definite rejection and never when the post may already be live.
-- `preflight.py` exercises the live code paths and the audit fixes on every push.
-
-## CLI
-
-```bash
-python main.py --require-today          # production: today's scan only
-python main.py --dry-run                # compute + format, send nothing
-python main.py --scan-date 2026-09-29   # READ-ONLY replay of a past date (not point-in-time)
-python main.py --scan-date D --live     # a replay that really sends/tracks (rarely right)
-python db_state.py pull | push | list   # database snapshots on the release
-python preflight.py                     # verify before shipping
+```powershell
+python outbox_cli.py 2026-10-05 telegram --receipt 123 --evidence "Checked message in channel"
+# Only after verifying that nothing was delivered:
+python outbox_cli.py 2026-10-05 x --not-sent --evidence "Verified no matching publication"
+python outbox_cli.py 2026-10-05 resume  # resumes saved entry decision, including an older date
+# A close is keyed by its signal date and ticker:
+python outbox_cli.py 2026-10-05 telegram --close-ticker TEST --receipt 124 --evidence "Checked close message"
 ```
 
-The Unusual Whales composite filter (research_uw_picker_v1) is inactive since the UW
-subscription was cancelled; it only ever set ranking priority, never a hard gate.
+Close outboxes resume on the ordinary monitor run and are retained in the
+canonical closed record, even when the last open position has been removed.
+Required delivery or Sheet failure keeps pipeline completion false. X automatic
+publication requires `ENABLE_X_AUTOPOST=true`; otherwise entry drafts are explicit
+manual-review output.
 
-See `SETUP.md` for Telegram, Google Sheet, GitHub and environment variables.
+Schedules in Eastern time: AM scan 10:30; PM scan 16:05 with a 17:15 backup;
+close monitor 16:15 and 17:30; weekly research Friday 18:30; heartbeat 21:30.
+These jobs review completed bars; they do not enforce intraday brokerage stops.
+
+SQLite release backups are unique, digest/integrity-verified snapshots. The previous
+copy is retained until a new copy is verified. The generation comparison is a stale
+writer precheck, not atomic server CAS: supported uploads require the serialized
+`tier-a-db-writer` workflow. Completion markers identify both the stored database
+snapshot and the original archived decision generation. Heartbeat checks the exact
+validated generation rather than any recently uploaded asset.
+
+## Research and inference
+
+Older cohorts are preserved as descriptive evidence, separately from the new price,
+screen and execution contracts. Next-open path inputs and engine versions are
+recorded; incomplete/missing inputs fail visibly. Weekly scores are descriptive.
+No historical small-sample p-value or weekly repeated look can promote a rule.
+
+The frozen prospective protocol starts on 2026-10-05, ends admissions on 2027-03-31
+and observes through 2027-06-30. A checkpoint retains immutable inputs/results and
+clustered uncertainty; calibrated policy promotion requires explicit review. The
+protocol lock binds the registry and source/config hashes. Changing a frozen engine
+invalidates promotion eligibility until a separately documented new protocol.
+Stop shadows report percentage P&L and R using a common live denominator, matching
+fixed-dollar slots. Forward calendar-day close benchmarks are separate from executable
+next-open paths and from live admitted, capital-constrained portfolio performance.
+
+The old n=63 / 67% / +5.2% public backtest footer has been removed. Historical cohorts,
+live paper records and a net portfolio return are different quantities. None establishes
+a prospective net edge under this version.
+
+## Verification and commands
+
+```powershell
+pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python preflight.py
+python main.py --dry-run
+python main.py --scan-date 2026-09-29  # archived as-of preview; no current-world queries
+python monitor.py --dry-run          # read-only completed-session preview
+```
+
+A dated preview requires its recorded archive; missing historical inputs are reported,
+not fabricated from today's calendar/chains. Historical dates cannot create live entries.
+The large database remains on the GitHub `db-state` release, outside Git.
+
+Before production rollout, rotate the historically exposed Telegram token with
+BotFather, update the GitHub secret, then verify the first new snapshot, label coverage,
+checkpoint acknowledgements and final marker. Token revocation cannot be established
+by a clean present-day secret scan. This repository does not revoke external credentials.

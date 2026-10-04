@@ -4,13 +4,9 @@ import sqlite3
 from pathlib import Path
 
 # Path to the skew-tracker DB. Override via SKEW_DB_PATH env var (used in CI).
-# Local default (fixed 2026-07-28): prefer THIS repo's committed skew_history.db —
-# the old sibling-repo copy at Downloads\skew-tracker went stale (last scan 6/5) and
-# silently fed local dry-runs/scorecards weeks-old data. Sibling kept only as fallback.
+# A missing local DB must fail instead of silently reading a stale sibling copy.
 _LOCAL_DB = Path(__file__).resolve().parent / 'skew_history.db'
-SKEW_DB = Path(os.environ.get('SKEW_DB_PATH',
-    str(_LOCAL_DB) if _LOCAL_DB.exists()
-    else r'C:\Users\18329\Downloads\skew-tracker\skew_history.db'))
+SKEW_DB = Path(os.environ.get('SKEW_DB_PATH', str(_LOCAL_DB)))
 
 EXCLUDED_ETFS = {'UVIX','UVXY','VXX','VIXY','SVIX','SVXY','SOXL','SOXS','TQQQ','SQQQ',
     'SPXL','SPXU','UPRO','SPXS','TNA','TZA','LABU','LABD','FAS','FAZ','JNUG','JDST','NUGT','DUST',
@@ -20,7 +16,7 @@ EXCLUDED_ETFS = {'UVIX','UVXY','VXX','VIXY','SVIX','SVXY','SOXL','SOXS','TQQQ','
 
 
 def _keep(r):
-    return r['ticker'] not in EXCLUDED_ETFS and (r['sector'] or '') != 'Unknown'
+    return r['ticker'] not in EXCLUDED_ETFS and r['sector'] not in (None, '', 'Unknown')
 
 
 def _is_tier_a(r):
@@ -29,7 +25,7 @@ def _is_tier_a(r):
             and r['near_skew'] is not None and r['near_skew'] <= -7)
 
 
-def read_tier_a(scan_date: str = None) -> list[dict]:
+def read_tier_a(scan_date: str = None) -> tuple[list[dict], str | None]:
     """Return list of Tier A candidates for scan_date (or latest if None).
 
     Each dict has: ticker, scan_date, spot_close, spot_return_pct, skew_change_5d,
@@ -37,9 +33,9 @@ def read_tier_a(scan_date: str = None) -> list[dict]:
     dte_earnings (if present), fwd_5d_return (None for today's signals).
     """
     if not SKEW_DB.exists():
-        raise FileNotFoundError(f'Skew DB not found at {SKEW_DB}. Make sure skew-tracker repo is at sibling path.')
+        raise FileNotFoundError(f'Skew DB not found at {SKEW_DB}. Restore the verified release snapshot first.')
 
-    c = sqlite3.connect(str(SKEW_DB))
+    c = sqlite3.connect(f'file:{SKEW_DB.resolve().as_posix()}?mode=ro', uri=True)
     c.row_factory = sqlite3.Row
     cur = c.cursor()
 
@@ -62,6 +58,8 @@ def read_tier_a(scan_date: str = None) -> list[dict]:
         out.append({
             'ticker': r['ticker'],
             'scan_date': r['scan_date'],
+            **{key: r[key] if key in r.keys() else None for key in
+               ('screen_version','window_sessions','sigma_time_basis','quote_asof','observed_at','quote_source')},
             'spot_close': r['spot_close'],
             'spot_return_pct': r['spot_return_pct'],
             'skew_change_5d': r['skew_change_5d'],
@@ -90,5 +88,5 @@ if __name__ == '__main__':
     print(f'Tier A candidates for scan_date {sd}: {len(rows)}')
     for r in rows:
         print(f"  {r['ticker']:6s} close=${r['spot_close']:.2f} ret={r['spot_return_pct']:+.1f}% "
-              f"skewd5d={r['skew_change_5d']:+.1f} near_skew={r['near_skew']:+.1f} "
+              f"skew_window={r['skew_change_5d']:+.1f} near_skew={r['near_skew']:+.1f} "
               f"dte={r['near_dte']} pwall=${r['put_wall_strike']} {r['sector']}")

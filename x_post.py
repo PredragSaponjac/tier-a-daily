@@ -55,7 +55,7 @@ def already_posted(first_line: str, since: str | None = None) -> str | None:
 
 def post_to_x_status(text: str) -> tuple:
     """Post a single tweet. Returns (status, tweet_id):
-      'posted'          2xx; the id is also logged to x_posted.log
+      'posted'          2xx with a readable tweet ID; also logged when storage permits
       'rejected'        X answered with an error status: nothing was published, retry is safe
       'unknown'         no answer (timeout/connection error): it MAY have been published, so
                         it must not be retried blindly
@@ -68,31 +68,36 @@ def post_to_x_status(text: str) -> tuple:
     try:
         s = _session()
     except Exception as e:
-        print(f'[x] client unavailable: {e}')
+        print(f'[x] client unavailable: {type(e).__name__}')
         return 'not_configured', None
     try:
         resp = s.post(X_TWEET_ENDPOINT, json={'text': text}, timeout=15)
     except Exception as e:
-        print(f'[x] no answer from X ({e}) — the post may or may not exist')
+        print(f'[x] no answer from X ({type(e).__name__}) — the post may or may not exist')
         return 'unknown', None
     if resp.status_code in (200, 201):
         # LOG THE TWEET ID (added 2026-08-10). Without it a posted call cannot be
         # found again to correct or delete: our API tier blocks timeline READS, so
         # the id returned here is the only record. The HUT retraction needed the
         # link hunted down by hand because this was never captured.
-        tid = None
         try:
             tid = (resp.json().get('data') or {}).get('id')
-            if tid:
-                print(f'[x] posted: https://x.com/PredragSaponjac/status/{tid}')
-                with open('x_posted.log', 'a', encoding='utf-8') as fh:
-                    fh.write(f'{_dt.datetime.utcnow().isoformat()}Z\t{tid}\t'
-                             f'{text.splitlines()[0][:80]}\n')
         except Exception as e:
-            print(f'[x] posted OK but id not captured: {e}')
+            print(f'[x] success response unreadable ({type(e).__name__}); receipt reconciliation required')
+            return 'unknown', None
+        if not tid:
+            print('[x] success response lacks tweet ID; receipt reconciliation required')
+            return 'unknown', None
+        print(f'[x] posted: https://x.com/PredragSaponjac/status/{tid}')
+        try:
+            with open('x_posted.log', 'a', encoding='utf-8') as fh:
+                fh.write(f'{_dt.datetime.utcnow().isoformat()}Z\t{tid}\t'
+                         f'{text.splitlines()[0][:80]}\n')
+        except Exception as e:
+            print(f'[x] receipt log failed ({type(e).__name__}); retain ID in durable outbox')
         return 'posted', tid
-    print(f'[x] {resp.status_code}: {resp.text[:200]}')
-    return 'rejected', None
+    print(f'[x] HTTP {resp.status_code}')
+    return ('rejected', None) if 400 <= resp.status_code < 500 else ('unknown', None)
 
 
 def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None = None) -> str:
@@ -141,8 +146,8 @@ def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None 
     pwall = c.get('put_wall_strike')
     cushion = ((entry / pwall - 1) * 100) if pwall else None
     parts.append("Skew setup — THE SIGNAL (Tier A gates passed):")
-    parts.append(f"  • Spot ${entry:.2f} ({(c.get('spot_return_pct') or 0):+.1f}% / 5d)")
-    parts.append(f"  • skew_change_5d {(c.get('skew_change_5d') or 0):+.1f} · near_skew {(c.get('near_skew') or 0):+.1f}")
+    parts.append(f"  • Reference spot ${entry:.2f} ({(c.get('spot_return_pct') or 0):+.1f}% / 9 sessions)")
+    parts.append(f"  • Skew change / 9 sessions {(c.get('skew_change_5d') or 0):+.1f} · near_skew {(c.get('near_skew') or 0):+.1f}")
     if pwall:
         parts.append(f"  • Put wall ${pwall} → spot {cushion:+.1f}% {'above' if cushion >= 0 else 'below'} (cushion)")
     if c.get('sector'):
@@ -159,9 +164,9 @@ def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None 
         if poi is not None: parts.append(f"  • Put OI 10d: {poi:+.1f}%")
         if dp is not None:  parts.append(f"  • Dark pool large blocks (10d): {dp}")
         parts.append("")
-    parts.append(f"Entry: ${entry:.2f}")
-    parts.append(f"T1 (default exit): ${T1:.2f} (+{tps['tp1']:.0f}%)")
-    parts.append(f"Stop: ${STOP:.2f} ({P.stop_pct():+.0f}%)")
+    parts.append('Paper entry: next regular-session open; price pending.')
+    parts.append(f"Target: +{tps['tp1']:.0f}% from that open; stop {P.stop_pct():+.0f}% (gaps may lose more).")
+    parts.append('Completed daily bars; dual touches are flagged ambiguous and booked as stops.')
     parts.append("")
     parts.append("⏱️ Short-term pullback — exits on target (win) or stop (loss), no time limit.")
     parts.append("Bot auto-closes at T1 or stop.")
@@ -174,11 +179,11 @@ def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None 
         parts.append(f"📋 Also tracked today, same rules, equal weight ({len(others)}):")
         for t in others:
             e = t.get('spot_close') or 0
-            parts.append(f"  {t['ticker']}  entry {e:.2f}  T1 {e*(1+tps['tp1']/100):.2f}  stop {e*(1+P.stop_pct()/100):.2f}")
+            parts.append(f"  {t['ticker']}  reference {e:.2f}; next-session opening price pending")
         cap = int(P.selection_params().get('max_concurrent', 6))
-        parts.append("Why all of them: four separate tests showed our one-per-day pick had no skill —")
-        parts.append(f"the names we skipped carried the return. Size every position at 1/{cap} of the book "
-                     f"({cap} = the concurrent cap, not today's count): same risk spread across names, not more risk.")
+        parts.append('The existing take-all policy is retained; its benefit remains unproven.')
+        parts.append(f"Paper allocation per reserved slot is 1/{cap} of the book "
+                     f"({cap} = the concurrent cap, not today's count).")
         parts.append("")
     # EDGE-VALIDATION block, published from 2026-08-10. Research only — it does NOT
     # affect selection. Posting it publicly turns every signal into a PRE-REGISTERED
@@ -216,7 +221,8 @@ def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None 
 
 def format_close_for_x(ticker: str, entry: float, exit_price: float, reason: str,
                        entry_date: str = None, exit_date: str = None,
-                       mae_pct: float = None, mfe_pct: float = None) -> str:
+                       mae_pct: float = None, mfe_pct: float = None,
+                       excursion_bounds: dict = None, split_basis: str = None) -> str:
     """Full-detail close post — WINS AND LOSSES REPORTED IDENTICALLY.
 
     Transparency rule: a public entry must always get a public outcome. A loss is
@@ -239,16 +245,22 @@ def format_close_for_x(ticker: str, entry: float, exit_price: float, reason: str
     parts.append(f"Result: {ret:+.2f}%")
     parts.append("")
 
-    if mae_pct is not None or mfe_pct is not None:
-        if mae_pct is not None:
-            parts.append(f"Worst drawdown held through: {mae_pct:+.1f}%")
-        if mfe_pct is not None:
-            parts.append(f"Best unrealised reached: {mfe_pct:+.1f}%")
+    if excursion_bounds:
+        for label, prefix in [('Adverse excursion', 'mae'), ('Favorable excursion', 'mfe')]:
+            lo, hi = excursion_bounds.get(prefix + '_pct_min'), excursion_bounds.get(prefix + '_pct_max')
+            if lo is not None and hi is not None:
+                parts.append(f'{label}: {lo:+.1f}% to {hi:+.1f}% (daily-bar bounds)')
+        parts.append('Exit-bar order cannot be recovered from daily OHLC.')
+        parts.append('')
+    elif mae_pct is not None or mfe_pct is not None:
+        parts.append('Legacy daily-bar excursions; held-period timing is unverified.')
         parts.append("")
 
+    if split_basis:
+        parts.append(f'Price basis: {split_basis}')
+
     if reason == 'STOP':
-        parts.append("Stop is hard at -7%. Taken without hesitation — "
-                     "the losses we publish are the reason the wins mean anything.")
+        parts.append('Paper barrier outcome; a gap through the stop fills at the session open.')
         parts.append("")
 
     # Updated record + heat/peak — recomputed AFTER this trade was logged, so it includes it

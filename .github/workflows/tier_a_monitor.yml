@@ -1,94 +1,66 @@
 name: Tier A Daily - intraday monitor
-
-# Trigger:
-#  - Every 15 min, 13:00-21:45 UTC Mon-Fri: covers the whole session (9:30-16:00 New
-#    York time) in BOTH seasons — 9:00-17:45 EDT in summer, 8:00-16:45 EST in winter —
-#    plus the post-close run that captures the final daily bar. No manual DST shifts.
-#    (Until 2026-10-04 this was 14:00-21:45 UTC, which missed 9:30-10:00 EDT every day
-#    and was described as "9:30 AM - 4:00 PM CDT", i.e. Central, not market hours.)
-#    Runs outside the session are harmless no-ops: the daily bar does not change.
-#  - Manual via Actions tab
+# Paper decisions use completed regular-session daily bars. The name is retained
+# for existing links; two after-close checks replace unsupported intraday fills.
 on:
   schedule:
-    - cron: '*/15 13-21 * * 1-5'
+    - cron: '15 16 * * 1-5'
+      timezone: America/New_York
+    - cron: '30 17 * * 1-5'
+      timezone: America/New_York
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 15   # runs every 15 min; a hung run must not overlap the next
+    timeout-minutes: 25
     permissions:
-      contents: write   # to commit tracker state changes
+      contents: write
+    concurrency:
+      group: tier-a-portfolio-writer
+      cancel-in-progress: false
+      queue: max
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DURABLE_STATE_CHECKPOINT: git
     steps:
-      - name: Checkout this repo
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-
+          cache: pip
       - name: Install deps
         run: pip install -r requirements.txt
-
-      - name: Check if any open positions (skip if none)
-        id: check
-        run: |
-          # AUDIT F08 (2026-10-04): `jq ... 2>/dev/null || echo 0` read a CORRUPT book as
-          # "no positions" and the run went green while nothing was monitored. Absent file
-          # = empty book; present but unreadable = a loud failure.
-          if [ ! -f open_positions.json ]; then
-            N=0
-          elif ! N=$(jq '.positions | length' open_positions.json); then
-            echo "::error::open_positions.json exists but is unreadable — positions are NOT being monitored"
-            exit 1
-          fi
-          # RE-AUDIT R4: also run when a recorded close still has an announcement pending
-          # (the close outbox), or a failed post for the LAST open position would never retry.
-          if [ ! -f closed_trades.json ]; then
-            P=0
-          elif ! P=$(jq '[.[] | select(.publication != null) | select((.publication.telegram == "pending") or (.publication.telegram == "failed") or (.publication.x == "pending") or (.publication.x == "rejected"))] | length' closed_trades.json); then
-            echo "::error::closed_trades.json exists but is unreadable — closes cannot be published"
-            exit 1
-          fi
-          echo "open positions: $N   pending close announcements: $P"
-          if [ "$N" -gt 0 ] || [ "$P" -gt 0 ]; then
-            echo "has_positions=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_positions=false" >> $GITHUB_OUTPUT
-            echo "No open positions and nothing to announce — skipping monitor."
-          fi
-
+      - name: Refresh portfolio state (fail closed)
+        run: git pull --ff-only origin "$GITHUB_REF_NAME"
+      # monitor validates both records even with zero positions, and flushes only
+      # safely retryable outboxes. Ambiguous sends require human reconciliation.
       - name: Run monitor
-        if: steps.check.outputs.has_positions == 'true'
+        id: monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # X creds added 2026-08-03: the monitor now publishes every CLOSE (win AND
-          # loss) to X. Without these the close post silently no-ops and a public
-          # entry is left with no published outcome.
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           GOOGLE_SHEETS_CREDS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDS_BASE64 }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          ENABLE_X_AUTOPOST: '1'
         run: python monitor.py
-
-      - name: Commit state changes (if any closes)
-        if: steps.check.outputs.has_positions == 'true'
-        run: |
-          git config user.name "tier-a-daily-bot"
-          git config user.email "bot@tieradaily.local"
-          # One add per path (2026-07-28): multi-path git add is all-or-nothing and
-          # gitignored/absent track_record.csv could abort the whole stage (see skew_pm).
-          git add open_positions.json 2>/dev/null || true
-          git add closed_trades.json 2>/dev/null || true
-          git add x_drafts/ 2>/dev/null || true
-          git add x_posted.log 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "Monitor run $(date -u +%Y-%m-%dT%H:%MZ)"
-          # AUDIT F19 (2026-10-04): this ended in `|| true`, so a close could be published
-          # to Telegram/X while its record never reached git — and the run still showed
-          # green. The next run would then see the position as open again.
-          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - a close or MAE/MFE update was NOT persisted'; exit 1; }
+      - name: Persist state even on delivery failure
+        if: always() && steps.monitor.outcome != 'skipped'
+        run: python state_lock.py checkpoint
+      - name: Preserve failed monitor evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            open_positions.json
+            closed_trades.json
+            x_drafts/
+            x_posted.log
+          retention-days: 14

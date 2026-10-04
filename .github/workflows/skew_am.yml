@@ -1,122 +1,120 @@
 name: Skew AM - auto scan and label
-
-# Trigger:
-#  - 10:30 New York time (9:30 AM Central), Mon-Fri, all year
-#  - Manual via Actions tab
-# NO MANUAL DST SHIFTS (2026-10-04): a summer cron and a winter cron; the gate job skips
-# the twin that is wrong for New York's current season (same design as skew_pm).
 on:
-  # Native `schedule:` was REMOVED 2026-06-15 (it fired ~1hr late and double-ran with
-  # cron-job.org). That left cron-job.org's workflow_dispatch as the SOLE trigger — and
-  # when its PAT expired ~2026-06-28 the scanner went silently dead for 17 trading days
-  # (6/27-7/17, zero scans, zero signals). RE-ADDED 2026-07-20 so scanning never depends
-  # on one external token again. GitHub cron usually fires LATE, so if cron-job.org is
-  # also live it wins the race; worst case a duplicate scan re-writes the same snapshot.
   schedule:
-    - cron: '30 14 * * 1-5'   # 10:30 EDT (summer)
-    - cron: '30 15 * * 1-5'   # 10:30 EST (winter)
+    - cron: '30 10 * * 1-5'
+      timezone: America/New_York
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (skip commit/push)'
+        description: 'Scan locally; no release or Git writes'
         type: boolean
         default: false
-
-# ONE DATABASE WRITER AT A TIME (audit F10, 2026-10-04) — shared with skew_pm and
-# weekly_audit; see skew_pm.yml for the full reasoning.
-concurrency:
-  group: tier-a-db-writer
-  cancel-in-progress: false
-
+permissions:
+  contents: read
 jobs:
-  gate:
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.g.outputs.skip }}
-    steps:
-      - id: g
-        env:
-          EVENT: ${{ github.event_name }}
-          SCHED: ${{ github.event.schedule }}
-        run: |
-          OFFSET=$(TZ=America/New_York date +%z)              # -0400 = EDT, -0500 = EST
-          SKIP=false
-          if [ "$EVENT" = "schedule" ]; then
-            case "$SCHED" in
-              '30 14 * * 1-5') [ "$OFFSET" = "-0400" ] || SKIP=true ;;
-              '30 15 * * 1-5') [ "$OFFSET" = "-0500" ] || SKIP=true ;;
-            esac
-          fi
-          echo "New York offset $OFFSET, schedule '$SCHED' -> skip=$SKIP"
-          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
-
   scan:
-    needs: gate
-    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
       contents: write
+    concurrency:
+      group: tier-a-db-writer
+      cancel-in-progress: false
+      queue: max
+    outputs:
+      marker_ready: ${{ steps.marker.outputs.ready }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DB_STATE_SERIALIZED: github-actions:tier-a-db-writer
+      DURABLE_STATE_CHECKPOINT: git
     steps:
-      - name: Checkout tier-a-daily
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-
+          cache: pip
       - name: Install deps
         run: pip install -r requirements.txt
-
-      # skew_history.db is a RELEASE ASSET, not a git file — it crossed GitHub's
-      # 100MB limit on 2026-08-25 and every push was silently rejected for 3 days.
-      # HARD-FAILS if the DB is missing/truncated/corrupt: never scan on a bad database.
+      - name: Session guard
+        id: guard
+        run: |
+          python - <<'PY'
+          import os
+          from market_time import is_session, now_eastern
+          day = now_eastern().date().isoformat()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'scan={str(is_session(day)).lower()}\ndate={day}\n')
+          PY
       - name: Fetch database state
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: steps.guard.outputs.scan == 'true'
         run: bash db_state.sh pull
-
       - name: Run skew_tracker.py (AM scan)
         id: scan
+        if: steps.guard.outputs.scan == 'true'
         run: |
-          # On failure print the log's tail HERE (on 9/28 the reason was lost with the runner).
           if python skew_tracker.py > skew_manual_am.log 2>&1; then
-            echo "Scan complete. Tail of log:"
             tail -10 skew_manual_am.log
           else
-            rc=$?
-            echo "::error::skew_tracker.py exited with code $rc. Last 60 lines of its log:"
-            tail -60 skew_manual_am.log
-            exit $rc
+            rc=$?; tail -60 skew_manual_am.log; exit "$rc"
           fi
-
       - name: Run label_candidates.py
-        run: |
-          python label_candidates.py
-          echo "Labeling complete"
-
-      # Persist the DB back to the release — the ONLY durable copy. A new, digest-verified
-      # snapshot; earlier generations are kept (audit F09). Runs even if labelling failed,
-      # so a research-label problem never throws away the scan itself (re-audit).
+        if: steps.scan.outcome == 'success'
+        run: python label_candidates.py
       - name: Store database state
-        if: ${{ always() && github.event.inputs.dry_run != 'true' && steps.scan.outcome == 'success' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+        id: store
+        if: always() && inputs.dry_run != true && steps.scan.outcome == 'success'
         run: bash db_state.sh push
-
-      # The marker LAST (2026-10-04): it now means "the AM scan is stored", not merely
-      # "the AM scan ran". The heartbeat reads these markers.
-      - name: Commit AM snapshot marker
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+      - name: Prepare AM snapshot marker
+        id: marker
+        if: success() && inputs.dry_run != true && steps.store.outcome == 'success'
         run: |
-          DATE=$(date -u +%Y-%m-%d)
-          git config user.name "tier-a-daily-bot"
-          git config user.email "bot@tieradaily.local"
-          python scan_marker.py AM
-          git add last_scan_am.json
-          git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE AM (auto)"
-          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - data NOT persisted'; exit 1; }
+          python scan_marker.py AM --date '${{ steps.guard.outputs.date }}'
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - name: Transfer final AM marker
+        if: steps.marker.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: am-marker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: last_scan_am.json
+          retention-days: 1
+          if-no-files-found: error
+      - name: Preserve scan failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: am-scan-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            skew_manual_am.log
+            .db_generation.json
+          include-hidden-files: true
+          retention-days: 14
+
+  persist_marker:
+    needs: scan
+    if: needs.scan.outputs.marker_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: tier-a-portfolio-writer
+      cancel-in-progress: false
+      queue: max
+    env:
+      DURABLE_STATE_CHECKPOINT: git
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Refresh Git state (fail closed)
+        run: git pull --ff-only origin "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v4
+        with:
+          name: am-marker-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Commit AM snapshot marker
+        run: python -c "from state_lock import checkpoint; checkpoint(['last_scan_am.json'])"

@@ -1,13 +1,7 @@
 name: Preflight - verify code paths before they ship
 
-# WHY: every public X/Telegram problem we have had was a code path that had never
-# actually run (format_close_for_x uncalled, x_drafts uncommitted, monitor missing
-# X secrets, a NameError behind a bare except). preflight.py exercises those paths
-# with known inputs and asserts the results.
-#
-# DELIBERATELY SEPARATE from the trading workflows. It does NOT gate skew_am,
-# skew_pm or the monitor — a bug in the checker must never be able to stop a real
-# signal from going out. It reports; humans act.
+# Behavioral regressions run offline; preflight validates configuration and wiring.
+# Runtime gates and durability checks fail closed inside the production jobs.
 
 on:
   push:
@@ -15,8 +9,13 @@ on:
     paths:
       - '**.py'
       - '.github/workflows/*.yml'
+      - 'parameters.json'
+      - 'hypotheses.json'
+      - 'inference_protocol_lock.json'
+      - 'requirements.txt'
   schedule:
-    - cron: '0 13 * * 1-5'    # 13:00 UTC weekdays — before the 14:30 AM scan
+    - cron: '0 9 * * 1-5'
+      timezone: America/New_York
   workflow_dispatch:
 
 jobs:
@@ -32,6 +31,9 @@ jobs:
 
       - name: Install deps
         run: pip install -r requirements.txt
+
+      - name: Run offline regression suite
+        run: python -m unittest discover -s tests -v
 
       - name: Run preflight
         id: pf

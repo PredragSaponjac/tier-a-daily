@@ -19,7 +19,9 @@ NOW
         beyond the newest KEEP. A failed upload leaves every earlier generation untouched.
         It REFUSES to push if the newest snapshot on the release is not the one this
         checkout pulled: another writer stored a newer database in between, and uploading
-        would silently erase that work (a compare-and-swap on the generation).
+         would silently erase that work. This is an optimistic stale-generation check,
+         NOT atomic compare-and-swap. All supported writers must also hold the shared
+         GitHub database-writer group; direct unsynchronized CLI pushes are refused.
   pull  downloads the newest snapshot (or the legacy single asset `skew_history.db` until
         the first versioned push exists), checks the transfer against the server's digest
         (a download cut off mid-transfer once produced "database disk image is malformed"),
@@ -29,7 +31,7 @@ NOW
 HARD FAILURE IS THE POINT: if the DB cannot be fetched or verified we ABORT. An empty or
 truncated DB yields no skew history, so no signal fires: a silent no-op that looks healthy.
 
-Usage: python db_state.py pull | push | list      (db_state.sh is a thin wrapper)
+Usage: python db_state.py pull | push | list | health (db_state.sh is a thin wrapper)
 """
 import datetime as dt
 import hashlib
@@ -51,6 +53,7 @@ KEEP = int(os.environ.get('DB_STATE_KEEP', '6'))
 MIN_BYTES = int(float(os.environ.get('DB_STATE_MIN_MB', '50')) * 1024 * 1024)
 GEN_FILE = os.environ.get('DB_STATE_GEN_FILE', '.db_generation.json')
 REQUIRED_TABLES = {'candidate_log': 1000, 'skew_daily': 1000}
+WRITER_CONTEXT = os.environ.get('DB_STATE_SERIALIZED', '')
 
 
 class DBStateError(RuntimeError):
@@ -158,9 +161,11 @@ def _download(name: str, dest: str) -> None:
 
 
 def pull() -> dict:
-    a = newest(list_assets())
+    assets = list_assets()
+    pinned = os.environ.get('DB_STATE_PULL_GENERATION')
+    a = next((x for x in assets if x['name'] == pinned and _done(x)), None) if pinned else newest(assets)
     if a is None:
-        raise DBStateError(f'no database snapshot on release {TAG!r}')
+        raise DBStateError(f'no requested database snapshot on release {TAG!r}')
     fd, tmp = tempfile.mkstemp(prefix='.db_pull_', suffix='.db',
                                dir=os.path.dirname(os.path.abspath(DB)))
     os.close(fd)
@@ -200,6 +205,9 @@ def _snapshot_name() -> str:
 
 
 def push() -> str | None:
+    if WRITER_CONTEXT != 'github-actions:tier-a-db-writer':
+        raise DBStateError('push requires the shared tier-a-db-writer workflow group; '
+                           'use a serialized workflow, not an independent CLI writer')
     info = check_db(DB)
     gen = _read_json(GEN_FILE)
     if not gen or not gen.get('name'):
@@ -212,6 +220,9 @@ def push() -> str | None:
                            f'{gen["name"]}, newest is now {cur_name}. Another writer stored a '
                            f'newer database; uploading this copy would erase its work. '
                            f'NOT pushing.')
+    if _digest_matches(cur, gen.get('sha256', '')) is False:
+        raise DBStateError('the pulled asset content changed under the same generation name; '
+                           'refusing to store stale state')
     local = sha256(DB)
     if local == gen.get('sha256'):
         print(f'[db-state] database unchanged since pull ({gen["name"]}); nothing to store')
@@ -241,7 +252,7 @@ def push() -> str | None:
             ok = sha256(back) == local
         finally:
             os.remove(back)
-    if up is None or not ok or up.get('size', info['bytes']) != info['bytes']:
+    if up is None or not _done(up) or not ok or up.get('size', info['bytes']) != info['bytes']:
         if up is not None:
             try:
                 GH('release', 'delete-asset', TAG, name, '-y')
@@ -250,20 +261,19 @@ def push() -> str | None:
         raise DBStateError(f'upload of {name} could not be verified against the local '
                            f'database; removed it. The previous generation {gen["name"]} '
                            f'is untouched.')
-    # Optimistic concurrency, completed (re-audit F10): the generation check above runs
-    # BEFORE the upload, so two writers could both pass it and both upload. Any OTHER
-    # snapshot newer than the generation we pulled means a concurrent writer: ours is
-    # withdrawn and this run FAILS, so its retry rebuilds on the other writer's data.
-    # Simultaneous uploads may both withdraw (both retry); they can never both stay.
-    rivals = [a['name'] for a in snapshots(assets)
-              if a['name'] != name and (gen['name'] == LEGACY or a['name'] > gen['name'])]
+    # Defense in depth if an unsupported writer bypasses the shared workflow
+    # queue during this upload. This observation is still not atomic CAS: the
+    # supported-writer serialization contract remains mandatory.
+    rivals = [asset['name'] for asset in snapshots(assets)
+              if asset['name'] != name and (gen['name'] == LEGACY or asset['name'] > gen['name'])]
     if rivals:
         try:
             GH('release', 'delete-asset', TAG, name, '-y')
-        except DBStateError as e:
-            print(f'::error::could not withdraw {name} after a concurrent write: {e}')
-        raise DBStateError(f'a concurrent writer stored {rivals[0]} while this run uploaded {name}; '
-                           f'withdrew ours so nothing is silently overwritten. Retry on top of it.')
+        except DBStateError:
+            raise DBStateError('a rival database generation appeared during upload; '
+                               'could not withdraw our uncommitted snapshot; manual review required')
+        raise DBStateError('a rival database generation appeared during upload; withdrew '
+                           'only our snapshot. Retry after pulling the current generation.')
     _write_json(GEN_FILE, {'name': name, 'sha256': local, 'bytes': info['bytes'],
                            'pushed_utc': _utcnow()})
     print(f'[db-state] stored and verified {name} (sha256 {local[:12]}...)')
@@ -273,12 +283,87 @@ def push() -> str | None:
 
 def prune(assets) -> None:
     """Keep the newest KEEP versioned snapshots. The legacy asset is never touched."""
+    if KEEP < 2:
+        raise DBStateError('DB_STATE_KEEP must retain at least two generations')
     for a in snapshots(assets)[KEEP:]:
         try:
             GH('release', 'delete-asset', TAG, a['name'], '-y')
             print(f'[db-state] pruned old generation {a["name"]}')
         except DBStateError as e:
             print(f'::warning::could not prune {a["name"]}: {e}')
+
+
+def generation() -> dict:
+    """Verified local snapshot identity for final run markers."""
+    gen = _read_json(GEN_FILE)
+    if not gen or not gen.get('name') or not gen.get('sha256'):
+        raise DBStateError('missing verified database generation')
+    if sha256(DB) != gen['sha256']:
+        raise DBStateError('local database differs from its stored generation')
+    return {'name': gen['name'], 'sha256': gen['sha256'], 'bytes': os.path.getsize(DB)}
+
+
+def health(marker_path='last_scan_pm.json', now=None) -> list[str]:
+    """Read-only health checks against exact PM snapshot identity, not any release asset."""
+    from market_time import last_completed_session, now_eastern
+    instant = now_eastern(now)
+    expected = last_completed_session(instant).isoformat()
+    problems = []
+    marker = _read_json(marker_path)
+    if not isinstance(marker, dict):
+        marker = None
+    if not marker or marker.get('latest_scan_date') != expected:
+        problems.append(f'PM pipeline has no final marker for completed session {expected}')
+    assets = list_assets()
+    a = newest(assets)
+    if a is None or not (a.get('digest') or '').startswith('sha256:'):
+        problems.append('no database snapshot with a server SHA-256 digest')
+    elif a.get('size', 0) < MIN_BYTES:
+        problems.append('latest database snapshot is below the minimum size')
+    else:
+        stamp = a.get('createdAt') or a.get('created_at')
+        if not stamp:
+            problems.append('latest database snapshot has no creation timestamp')
+        else:
+            try:
+                created = dt.datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+                if created.tzinfo is None:
+                    raise ValueError('naive creation time')
+                age = (instant - created).total_seconds() / 3600
+            except (TypeError, ValueError):
+                problems.append('latest database snapshot has an invalid creation timestamp')
+                age = 0
+            # Weekends/holidays need not create empty snapshots. The PM marker is the
+            # session freshness contract; a weekday session gets the normal30h deadline.
+            if instant.date() == dt.date.fromisoformat(expected) and age > 30:
+                problems.append(f'latest stored database is {age:.1f}h old')
+    if marker:
+        gen = marker.get('db_generation') or {}
+        named = next((a for a in assets if a['name'] == gen.get('name') and _done(a)), None)
+        if named is None or _digest_matches(named, gen.get('sha256', '')) is not True:
+            problems.append('PM marker database generation is absent or its digest differs')
+        if not marker.get('decision_run_id'):
+            problems.append('PM marker lacks its completed decision identity')
+        archive = _read_json(Path('signals', f'{expected}.json'))
+        if (not isinstance(archive, dict) or archive.get('scan_date') != expected
+                or archive.get('run_id') != marker.get('decision_run_id')
+                or archive.get('delivery', {}).get('complete') is not True):
+            problems.append('PM marker decision is absent, mismatched or incomplete')
+        decision_gen = marker.get('decision_db_generation') or {}
+        decision_asset = next((a for a in assets if a['name'] == decision_gen.get('name') and _done(a)), None)
+        if (decision_asset is None or _digest_matches(decision_asset, decision_gen.get('sha256', '')) is not True
+                or not isinstance(archive, dict) or archive.get('data_generation') != decision_gen):
+            problems.append('original decision database generation is absent or mismatched')
+    closed = Path('closed_trades.json')
+    if closed.exists():
+        rows = _read_json(closed)
+        if not isinstance(rows, list):
+            problems.append('closed-trade record is unreadable')
+        elif any(isinstance(row, dict) and isinstance(row.get('publication'), dict)
+                 and (row['publication'].get('telegram') not in ('sent', 'n/a')
+                      or row['publication'].get('x') not in ('posted', 'draft', 'n/a')) for row in rows):
+            problems.append('one or more close announcements require delivery or reconciliation')
+    return problems
 
 
 def main(argv) -> int:
@@ -292,8 +377,13 @@ def main(argv) -> int:
             for a in list_assets():
                 print(f'{a["name"]:48s} {a.get("size", 0) / 1048576:7.1f} MB  '
                       f'{a.get("createdAt") or a.get("created_at") or ""}  {a.get("state", "")}')
+        elif cmd == 'health':
+            problems = health()
+            for problem in problems:
+                print(f'::error::{problem}')
+            return 1 if problems else 0
         else:
-            print('usage: db_state.py pull|push|list', file=sys.stderr)
+            print('usage: db_state.py pull|push|list|health', file=sys.stderr)
             return 2
     except DBStateError as e:
         print(f'::error::[db-state] FATAL: {e}')

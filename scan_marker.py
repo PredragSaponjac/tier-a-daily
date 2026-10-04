@@ -1,64 +1,68 @@
-# -*- coding: utf-8 -*-
-"""Write a small, git-committable marker recording that a scan actually landed.
-
-WHY THIS EXISTS
-skew_history.db moved OUT of git on 2026-08-27 (it crossed GitHub's 100MB limit, so
-every push was rejected while the workflows still reported success — three days of
-scans were computed and thrown away). But two things grep the git log for
-"Skew tracker snapshot" commits:
-
-  * heartbeat.yml  — alarms if no such commit in 72h
-  * skew_pm guard  — skips a duplicate PM run if today's already exists
-
-With the DB gone from git and *.log gitignored, the snapshot commit would stage
-NOTHING, so those commits would stop — the heartbeat would alarm every day on a
-perfectly healthy scanner, and the dupe guard would never fire.
-
-This marker is tiny (a few hundred bytes), commits cleanly, keeps both mechanisms
-working, and doubles as a health record: if the row counts stop rising, the scan is
-running but not writing.
-
-Usage: python scan_marker.py AM|PM
-"""
+"""Final scan marker: exact stored generation and completed decision identity."""
+import argparse
 import datetime as dt
 import json
 import os
+from pathlib import Path
 import sqlite3
-import sys
+import tempfile
+
+import db_state
+from state_lock import trading_date
 
 DB = os.environ.get('SKEW_DB_PATH', 'skew_history.db')
 
 
-def main():
-    tag = (sys.argv[1] if len(sys.argv) > 1 else 'PM').upper()
-    out = f'last_scan_{tag.lower()}.json'
-    rec = {'scan': tag, 'utc': dt.datetime.utcnow().isoformat() + 'Z'}
+def write_marker(tag, date=None):
+    tag = tag.upper()
+    if tag not in ('AM', 'PM'):
+        raise ValueError('marker must be AM or PM')
+    date = date or trading_date().isoformat()
+    dt.date.fromisoformat(date)
+    con = sqlite3.connect(Path(DB).resolve().as_uri() + '?mode=ro', uri=True)
     try:
-        con = sqlite3.connect(DB)
-        q = lambda s: con.execute(s).fetchone()[0]
-        rec.update({
-            'latest_scan_date': q('SELECT MAX(scan_date) FROM candidate_log'),
-            'candidate_log_rows': q('SELECT COUNT(*) FROM candidate_log'),
-            'skew_daily_rows': q('SELECT COUNT(*) FROM skew_daily'),
-            'fixed_strike_vol_rows': q('SELECT COUNT(*) FROM fixed_strike_vol'),
-            'db_bytes': os.path.getsize(DB),
-        })
+        q = lambda sql: con.execute(sql).fetchone()[0]
+        latest = q('SELECT MAX(scan_date) FROM candidate_log')
+        if latest != date:
+            raise RuntimeError(f'latest scan is {latest}, expected {date}')
+        rec = {'scan': tag, 'latest_scan_date': date,
+               'utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+               'candidate_log_rows': q('SELECT COUNT(*) FROM candidate_log'),
+               'skew_daily_rows': q('SELECT COUNT(*) FROM skew_daily'),
+               'fixed_strike_vol_rows': q('SELECT COUNT(*) FROM fixed_strike_vol'),
+               'db_bytes': os.path.getsize(DB), 'db_generation': db_state.generation()}
+    finally:
         con.close()
-    except Exception as e:                       # never block the commit on this
-        rec['error'] = f'{type(e).__name__}: {e}'
-    # The release snapshot this run stored (or pulled, if it stored nothing): the heartbeat
-    # checks THIS generation exists, not merely that some asset is recent (re-audit, 10/04).
+    if tag == 'PM':
+        archive = json.loads(Path('signals', f'{date}.json').read_text(encoding='utf-8'))
+        if archive.get('scan_date') != date or archive.get('delivery', {}).get('complete') is not True:
+            raise RuntimeError('PM marker requires a completed, durable decision outbox')
+        if not archive.get('run_id'):
+            raise RuntimeError('PM marker requires a decision run identity')
+        rec['decision_run_id'] = archive['run_id']
+        decision_gen = archive.get('data_generation')
+        if not isinstance(decision_gen, dict) or not decision_gen.get('sha256') or not decision_gen.get('name'):
+            raise RuntimeError('PM marker requires the original decision database generation')
+        # A recovery scan can be newer than the DB used for the frozen decision.
+        # Keep both identities instead of attributing an old decision to new data.
+        rec['decision_db_generation'] = decision_gen
+    out = Path(f'last_scan_{tag.lower()}.json')
+    fd, tmp = tempfile.mkstemp(prefix=f'.{out.name}.', suffix='.tmp', dir=out.parent)
     try:
-        with open(os.environ.get('DB_STATE_GEN_FILE', '.db_generation.json'), encoding='utf-8') as fh:
-            rec['db_generation'] = json.load(fh).get('name')
-    except (OSError, ValueError):
-        rec['db_generation'] = None
-    with open(out, 'w', encoding='utf-8') as fh:
-        json.dump(rec, fh, indent=2)
-    print(f'[marker] wrote {out}: {rec.get("latest_scan_date")} '
-          f'({rec.get("candidate_log_rows")} candidate rows, '
-          f'{round(rec.get("db_bytes", 0) / 1048576, 1)} MB)')
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            json.dump(rec, fh, indent=2)
+            fh.flush(); os.fsync(fh.fileno())
+        os.replace(tmp, out)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return rec
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('tag', choices=['AM', 'PM'])
+    parser.add_argument('--date')
+    args = parser.parse_args()
+    rec = write_marker(args.tag, args.date)
+    print(f'[marker] {args.tag} {rec["latest_scan_date"]}: {rec["db_generation"]["name"]}')
