@@ -455,6 +455,38 @@ def check_self_audit():
         hard('self_audit functional check', False, f'{type(e).__name__}: {e}')
 
 
+def check_self_audit_decisions():
+    """AUDIT F12/F14 (2026-10-04). The registry's promotion logic could never fire, and
+    could fire on a p-value that missed the bar. These are unit tests of the pure
+    decision functions, including a known-READY case — the test the original preflight
+    never had, which is why a dead promotion path passed for a month."""
+    print('\n=== 7b. self-audit DECISION logic (audit F12/F14) ===')
+    import numpy as np
+    import pandas as pd
+    import self_audit as SA
+    bar = 0.05 / 29
+    hard('known-READY: strong effect, p under bar, agree passed as numpy.bool_ -> READY',
+         SA._verdict(0.40, 1e-6, np.bool_(True), 80, 10, bar) == 'READY FOR DECISION',
+         'numpy.bool_(True) still blocks promotion — the original F12 failure')
+    d = pd.DataFrame({'scan_date': ['2026-01-0' + str(i % 8 + 1) for i in range(40)],
+                      'v': [1.0] * 40})
+    agree = SA._halves_agree(d, lambda z: z.v.mean())
+    hard('_halves_agree returns a PYTHON bool (never numpy.bool_)',
+         type(agree) is bool, f'returned {type(agree).__name__} — `agree is True` would fail')
+    hard('known-READY end to end: _verdict(_halves_agree(...)) promotes',
+         SA._verdict(0.40, 1e-6, agree, 80, 10, bar) == 'READY FOR DECISION',
+         f'agree={agree!r}')
+    hard('boundary: raw p a hair ABOVE the bar must NOT promote (rounding bug)',
+         SA._verdict(0.40, 0.0017477554, True, 80, 10, bar) == 'ACCUMULATING',
+         'a rounded p-value cleared a bar the raw p-value missed')
+    hard('speed cannot bypass the both-halves rule (agree=None never promotes)',
+         SA._verdict(0.40, 1e-6, None, 80, 10, bar) == 'ACCUMULATING',
+         'agree=None was being waved through for speed ideas')
+    x = pd.DataFrame({'days_to_t1': [1, None, 5, None], 'days_to_stop': [None, 2, None, 4]})
+    hard('risk set at day 2 keeps only positions still open at the end of day 2',
+         list(SA._open_at(x, 2).index) == [2, 3], f'kept {list(SA._open_at(x, 2).index)}')
+
+
 def check_take_all():
     """TAKE-ALL selection (parameters 1.1.0, 2026-09-02) — tests main.select_taken, the
     pure function the live path calls. Cap, no-double-up, and the OFF switch must all hold;
@@ -491,8 +523,8 @@ def check_take_all():
 def main():
     print('PREFLIGHT — tier-a-daily')
     for fn in (check_gates, check_data_quality, check_formatters,
-               check_wiring, check_silent_failures, check_self_audit, check_take_all,
-               check_network):
+               check_wiring, check_silent_failures, check_self_audit,
+               check_self_audit_decisions, check_take_all, check_network):
         try:
             fn()
         except Exception as e:

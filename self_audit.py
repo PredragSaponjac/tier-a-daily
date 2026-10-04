@@ -99,13 +99,49 @@ def picked_map(archives_dir):
 
 # ----------------------------------------------------------------- scoring
 def _halves_agree(x, eff_fn):
+    """True / False / None. Always a PYTHON bool, never numpy.bool_.
+
+    AUDIT F12 (2026-10-04): this returned numpy.bool_, and the verdict tested
+    `agree is True` — which is False for numpy.bool_(True). So from 2026-09-02 no
+    entry_filter, post_entry, exit_shadow or portfolio idea could EVER reach READY,
+    however strong the evidence. The promotion mechanism was dead on arrival.
+    """
     if x.scan_date.nunique() < 4:
         return None
     med = sorted(x.scan_date.unique())[x.scan_date.nunique() // 2]
     e1, e2 = eff_fn(x[x.scan_date < med]), eff_fn(x[x.scan_date >= med])
     if e1 is None or e2 is None or np.isnan(e1) or np.isnan(e2):
         return None
-    return (e1 > 0) == (e2 > 0) and e1 > 0
+    return bool((e1 > 0) and (e2 > 0))
+
+
+def _verdict(eff, p, agree, n_total, n_min, p_bar):
+    """Pure decision rule, unit-tested in preflight. Uses FULL-PRECISION inputs.
+
+    AUDIT F12: decisions used p rounded to 4 places, so a raw p of 0.0017478 became
+    0.0017 and cleared a 0.0017241 bar it actually missed. And speed ideas were waved
+    through with agree=None, skipping the both-halves rule every other type obeys.
+    Now: READY needs p < bar AND agree is exactly True, for every type.
+    """
+    if eff is None or not np.isfinite(eff) or eff <= 0:
+        return 'NULL'
+    if p > 0.5 and n_total >= 2 * n_min:
+        return 'NULL'
+    # `agree is not None and bool(agree)`, NOT `agree is True`: numpy.bool_(True) is True
+    # evaluates False, which is exactly how promotion died. Robust to either type.
+    if p < p_bar and agree is not None and bool(agree):
+        return 'READY FOR DECISION'
+    return 'ACCUMULATING'
+
+
+def _open_at(x, day):
+    """Rows still at risk at the END of `day` — resolution strictly later than `day`.
+    AUDIT F14: a post-entry signal is acted on at its landmark, so only positions still
+    open then are in its risk set. Counting trades that had already stopped made
+    'never green by day 3' look perfect: 15 of the 18 never-green losers had stopped
+    before day 3 could act on them."""
+    res = x['days_to_t1'].fillna(x['days_to_stop'])
+    return x[res > day]
 
 
 def _mask(d, feat, op, thr):
@@ -128,6 +164,8 @@ def score_one(h, d, n_min, p_bar):
             return {**r, 'verdict': 'INSUFFICIENT', 'detail': f'feature {feat} unavailable'}
         if typ == 'post_entry':                       # never-green counts as NOT <= k
             x[feat] = x[feat].fillna(999)
+            if h.get('landmark_day') is not None:     # F14: risk set = still open at landmark
+                x = _open_at(x, int(h['landmark_day']))
         x = x[x[feat].notna() & x.hit_t1.notna()]
         m = _mask(x, feat, h['op'], h['threshold'])
         a, b = x[m], x[~m]
@@ -142,12 +180,13 @@ def score_one(h, d, n_min, p_bar):
         agree = _halves_agree(x, lambda z: (z[_mask(z, feat, h['op'], h['threshold'])].hit_t1.mean()
                                             - z[~_mask(z, feat, h['op'], h['threshold'])].hit_t1.mean())
                               if len(z) >= 4 else None)
-        r.update(effect=round(eff, 3), p=round(p, 4), halves_agree=agree,
+        r.update(effect_raw=float(eff), p_raw=float(p), halves_agree=agree,
                  detail=f'hit-T1 {a.hit_t1.mean():.0%} (n={len(a)}) vs {b.hit_t1.mean():.0%} (n={len(b)})')
 
     elif typ == 'exit_shadow':
         f, base = h['feature'], h['baseline']
-        x = x[x[f].notna() & x[base].notna()]
+        # F21: resolved paths only. OPEN rows carry a provisional mark-to-market r_live.
+        x = x[(x['complete'] == 1) & x[f].notna() & x[base].notna()]
         r.update(n_pass=len(x), n_fail=len(x))
         if len(x) < n_min:
             return {**r, 'verdict': 'INSUFFICIENT', 'detail': f'{len(x)} resolved (need {n_min})'}
@@ -155,25 +194,29 @@ def score_one(h, d, n_min, p_bar):
         eff = diff.mean()
         p = stats.wilcoxon(diff, alternative='greater').pvalue if diff.abs().sum() > 0 else 1.0
         agree = _halves_agree(x, lambda z: (z[f] - z[base]).mean() if len(z) >= 3 else None)
-        r.update(effect=round(eff, 3), p=round(p, 4), halves_agree=agree,
+        r.update(effect_raw=float(eff), p_raw=float(p), halves_agree=agree,
                  detail=f'R {x[f].mean():+.3f} vs live {x[base].mean():+.3f} (n={len(x)})')
 
     elif typ == 'portfolio':
         pm = picked_map(ARCHIVES)
-        x = x[x.scan_date.isin(pm) & x.r_live.notna()].copy()
+        # F21: was `r_live.notna()`, which counted the still-OPEN 9/29 STLA as resolved.
+        x = x[x.scan_date.isin(pm) & x.outcome.isin(['T1', 'STOP'])].copy()
         x['picked'] = [pm.get(s) == t for s, t in zip(x.scan_date, x.ticker)]
         a, b = x[x.picked], x[~x.picked]
         r.update(n_pass=len(a), n_fail=len(b))
         if len(a) < n_min or len(b) < n_min:
             return {**r, 'verdict': 'INSUFFICIENT',
                     'detail': f'picked {len(a)} / skipped {len(b)} resolved since archives began (need {n_min} each)'}
-        p_rank = stats.mannwhitneyu(a.r_live, b.r_live, alternative='greater').pvalue
+        # F12: test the registered alternative DIRECTLY (skipped > picked). The old
+        # `1 - p(picked > skipped)` is not the same p-value once ties and the continuity
+        # correction are involved.
+        p_dir = stats.mannwhitneyu(b.r_live, a.r_live, alternative='greater').pvalue
         eff = b.r_live.mean() - a.r_live.mean()          # positive = skipped did BETTER
         agree = _halves_agree(x, lambda z: (z[~z.picked].r_live.mean() - z[z.picked].r_live.mean())
                               if z.picked.sum() >= 2 and (~z.picked).sum() >= 2 else None)
-        r.update(effect=round(eff, 3), p=round(1 - p_rank, 4), halves_agree=agree,
+        r.update(effect_raw=float(eff), p_raw=float(p_dir), halves_agree=agree,
                  detail=f'SKIPPED R {b.r_live.mean():+.3f} (n={len(b)}) vs PICKED {a.r_live.mean():+.3f} '
-                        f'(n={len(a)}); p(picked>skipped)={p_rank:.2f}')
+                        f'(n={len(a)}); p(skipped>picked)={p_dir:.3f}')
 
     elif typ == 'speed':
         w = x[x.hit_t1 == 1.0]
@@ -190,19 +233,23 @@ def score_one(h, d, n_min, p_bar):
         best = min(rows, key=lambda t: t[2])
         want_neg = h.get('direction') == 'negative_rho'
         eff = -best[1] if want_neg else abs(best[1])
-        r.update(effect=round(eff, 3), p=round(best[2], 4), halves_agree=None,
-                 detail=f'best {best[0]} rho={best[1]:+.2f} p={best[2]:.3f} (n={best[3]}, {len(feats)} features counted)')
+        # F12: speed now obeys the both-halves rule like every other type. The rho for
+        # the chosen feature must point the registered way in BOTH halves of the sample.
+        bf = best[0]
+        sgn = (lambda rr: -rr) if want_neg else (lambda rr: abs(rr))
+        def _half_rho(z):
+            zz = z[[bf, 'days_to_t1']].dropna()
+            return sgn(stats.spearmanr(zz[bf], zz.days_to_t1)[0]) if len(zz) >= 4 else None
+        agree = _halves_agree(w, _half_rho)
+        r.update(effect_raw=float(eff), p_raw=float(best[2]), halves_agree=agree,
+                 detail=f'best {bf} rho={best[1]:+.2f} p={best[2]:.3f} (n={best[3]}, {len(feats)} features counted)')
     else:
         return {**r, 'verdict': 'INSUFFICIENT', 'detail': f'unknown type {typ}'}
 
-    # ---- verdict
-    eff, p, agree = r['effect'], r['p'], r.get('halves_agree')
-    if eff <= 0 or (p > 0.5 and (r['n_pass'] + r['n_fail']) >= 2 * n_min):
-        r['verdict'] = 'NULL'
-    elif p < p_bar and (agree is True or agree is None and typ == 'speed'):
-        r['verdict'] = 'READY FOR DECISION'
-    else:
-        r['verdict'] = 'ACCUMULATING'
+    # ---- verdict on FULL-PRECISION values; rounded copies are for display only
+    r['verdict'] = _verdict(r['effect_raw'], r['p_raw'], r.get('halves_agree'),
+                            r['n_pass'] + r['n_fail'], n_min, p_bar)
+    r['effect'], r['p'] = round(r['effect_raw'], 3), round(r['p_raw'], 4)
     return r
 
 
@@ -263,6 +310,11 @@ def loser_ledger(registry):
         x = r.copy()
         if h['type'] == 'post_entry':
             x[f] = x[f].fillna(999)
+            # AUDIT F14: a post-entry rule can only act on positions still open at its
+            # landmark. Without this the ledger showed H5 as '18 losers / 0 winners' when
+            # 15 of those 18 had already stopped before day 3 — a hindsight label.
+            if h.get('landmark_day') is not None:
+                x = _open_at(x, int(h['landmark_day']))
         x = x[x[f].notna()]
         m = _mask(x, f, h['op'], h['threshold'])
         lb, wb = x[(~m) & (x.outcome == 'STOP')], x[(~m) & (x.outcome == 'T1')]

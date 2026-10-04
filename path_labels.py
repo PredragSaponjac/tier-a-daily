@@ -168,9 +168,14 @@ def main():
 
     # A row counts as done only if EVERY shadow is filled, so adding a new shadow column
     # self-heals: existing rows are relabelled once to populate it.
+    # AUDIT F21: EVERY shadow must be resolved, not just the newest ones. A +10% winner
+    # can satisfy the target-8 and never-green columns while the target-12 shadow is still
+    # walking, and the old filter would then freeze r_t12 as NULL forever. Each walk ends
+    # in T1, STOP or EXPIRED at WINDOW bars, so this cannot loop indefinitely.
     done = pd.read_sql_query("""SELECT ticker, scan_date FROM tier_a_paths
-        WHERE complete=1 AND r_t8 IS NOT NULL AND r_nevergreen_d2 IS NOT NULL
-          AND r_nevergreen_d3 IS NOT NULL""", con)
+        WHERE complete=1
+          AND r_stop5 IS NOT NULL AND r_stop6 IS NOT NULL AND r_t12 IS NOT NULL
+          AND r_t8 IS NOT NULL AND r_nevergreen_d2 IS NOT NULL AND r_nevergreen_d3 IS NOT NULL""", con)
     key = set(zip(done.ticker, done.scan_date))
     todo = q[[(a, b) not in key for a, b in zip(q.ticker, q.scan_date)]]
     print(f'[paths] qualifiers {len(q)}, complete {len(key)}, to (re)label {len(todo)}')
