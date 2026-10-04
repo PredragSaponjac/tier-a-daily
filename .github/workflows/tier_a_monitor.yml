@@ -1,13 +1,16 @@
 name: Tier A Daily - intraday monitor
 
 # Trigger:
-#  - Every 15 min during US market hours: 14:30-21:00 UTC (9:30 AM - 4:00 PM CDT)
-#    Currently CDT (Mar-Nov). DST ends ~Nov 2 → shift to 15:30-22:00 UTC.
-#  - Mon-Fri only
+#  - Every 15 min, 13:00-21:45 UTC Mon-Fri: covers the whole session (9:30-16:00 New
+#    York time) in BOTH seasons — 9:00-17:45 EDT in summer, 8:00-16:45 EST in winter —
+#    plus the post-close run that captures the final daily bar. No manual DST shifts.
+#    (Until 2026-10-04 this was 14:00-21:45 UTC, which missed 9:30-10:00 EDT every day
+#    and was described as "9:30 AM - 4:00 PM CDT", i.e. Central, not market hours.)
+#    Runs outside the session are harmless no-ops: the daily bar does not change.
 #  - Manual via Actions tab
 on:
   schedule:
-    - cron: '*/15 14-21 * * 1-5'
+    - cron: '*/15 13-21 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -41,11 +44,20 @@ jobs:
             echo "::error::open_positions.json exists but is unreadable — positions are NOT being monitored"
             exit 1
           fi
-          if [ "$N" -gt 0 ]; then
+          # RE-AUDIT R4: also run when a recorded close still has an announcement pending
+          # (the close outbox), or a failed post for the LAST open position would never retry.
+          if [ ! -f closed_trades.json ]; then
+            P=0
+          elif ! P=$(jq '[.[] | select(.publication != null) | select((.publication.telegram == "pending") or (.publication.telegram == "failed") or (.publication.x == "pending") or (.publication.x == "rejected"))] | length' closed_trades.json); then
+            echo "::error::closed_trades.json exists but is unreadable — closes cannot be published"
+            exit 1
+          fi
+          echo "open positions: $N   pending close announcements: $P"
+          if [ "$N" -gt 0 ] || [ "$P" -gt 0 ]; then
             echo "has_positions=true" >> $GITHUB_OUTPUT
           else
             echo "has_positions=false" >> $GITHUB_OUTPUT
-            echo "No open positions — skipping monitor."
+            echo "No open positions and nothing to announce — skipping monitor."
           fi
 
       - name: Run monitor

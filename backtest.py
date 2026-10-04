@@ -33,10 +33,18 @@ def recompute_score(cand_raw: dict, thresholds: dict) -> int:
 
 
 def simulate_trade(ticker: str, entry_date: str, entry_price: float,
-                    tp1_pct: float, stop_pct: float, max_days: int = 10) -> dict:
-    """Walk daily OHLC; return outcome under TP1-only exit logic."""
+                    tp1_pct: float, stop_pct: float, max_days: int | None = None) -> dict:
+    """Walk daily OHLC; return the outcome under the LIVE exit rule.
+
+    RE-AUDIT R1 (2026-10-04): this had its own engine — target checked BEFORE the stop,
+    every stop booked at exactly stop_pct even through a gap, and a 10-day timeout the live
+    book does not have. It now resolves every bar with exits.resolve_bar (shared with the
+    monitor and path_labels) and holds without a time limit unless max_days is given
+    explicitly, in which case TIMEOUT marks a DIFFERENT strategy, not the live one.
+    """
+    from exits import resolve_bar, held_extremes
     e = dt.datetime.strptime(entry_date, '%Y-%m-%d').date()
-    end = e + dt.timedelta(days=max_days + 7)
+    end = (e + dt.timedelta(days=max_days + 7)) if max_days else dt.date.today() + dt.timedelta(days=1)
     try:
         df = yf.Ticker(ticker).history(start=e + dt.timedelta(days=1), end=end, auto_adjust=True)
     except Exception:
@@ -50,23 +58,21 @@ def simulate_trade(ticker: str, entry_date: str, entry_price: float,
     days_in = 0
     for idx, row in df.iterrows():
         days_in += 1
-        high = float(row['High']); low = float(row['Low'])
-        hi_pct = (high / entry_price - 1) * 100
-        lo_pct = (low / entry_price - 1) * 100
-        if hi_pct > mfe: mfe = hi_pct
-        if lo_pct < mae: mae = lo_pct
-        if high >= T1:
-            return {'outcome': 'TP1', 'return_pct': tp1_pct, 'days_in': days_in,
-                    'mae_pct': mae, 'mfe_pct': mfe}
-        if low <= STOP:
-            return {'outcome': 'STOP', 'return_pct': stop_pct, 'days_in': days_in,
-                    'mae_pct': mae, 'mfe_pct': mfe}
-        if days_in >= max_days:
+        o, high, low = float(row['Open']), float(row['High']), float(row['Low'])
+        res = resolve_bar(o, high, low, T1, STOP)
+        lo_h, hi_h = held_extremes(o, high, low, res)
+        mae = min(mae, (lo_h / entry_price - 1) * 100)
+        mfe = max(mfe, (hi_h / entry_price - 1) * 100)
+        if res is not None:
+            reason, px, note = res
+            return {'outcome': reason, 'return_pct': (px / entry_price - 1) * 100, 'days_in': days_in,
+                    'mae_pct': mae, 'mfe_pct': mfe, 'note': note}
+        if max_days and days_in >= max_days:
             close = float(row['Close'])
             return {'outcome': 'TIMEOUT', 'return_pct': (close / entry_price - 1) * 100,
                     'days_in': days_in, 'mae_pct': mae, 'mfe_pct': mfe}
     close = float(df['Close'].iloc[-1])
-    return {'outcome': 'WINDOW_END', 'return_pct': (close / entry_price - 1) * 100,
+    return {'outcome': 'OPEN', 'return_pct': (close / entry_price - 1) * 100,
             'days_in': days_in, 'mae_pct': mae, 'mfe_pct': mfe}
 
 

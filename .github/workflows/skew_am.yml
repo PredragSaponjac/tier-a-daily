@@ -1,9 +1,10 @@
 name: Skew AM - auto scan and label
 
 # Trigger:
-#  - 14:30 UTC = 9:30 AM CDT (Mar-Nov), Mon-Fri
-#    DST: Nov 1, 2026 — shift to 15:30 UTC (9:30 AM CST)
+#  - 10:30 New York time (9:30 AM Central), Mon-Fri, all year
 #  - Manual via Actions tab
+# NO MANUAL DST SHIFTS (2026-10-04): a summer cron and a winter cron; the gate job skips
+# the twin that is wrong for New York's current season (same design as skew_pm).
 on:
   # Native `schedule:` was REMOVED 2026-06-15 (it fired ~1hr late and double-ran with
   # cron-job.org). That left cron-job.org's workflow_dispatch as the SOLE trigger — and
@@ -12,7 +13,8 @@ on:
   # on one external token again. GitHub cron usually fires LATE, so if cron-job.org is
   # also live it wins the race; worst case a duplicate scan re-writes the same snapshot.
   schedule:
-    - cron: '30 14 * * 1-5'
+    - cron: '30 14 * * 1-5'   # 10:30 EDT (summer)
+    - cron: '30 15 * * 1-5'   # 10:30 EST (winter)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -27,7 +29,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.g.outputs.skip }}
+    steps:
+      - id: g
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHED: ${{ github.event.schedule }}
+        run: |
+          OFFSET=$(TZ=America/New_York date +%z)              # -0400 = EDT, -0500 = EST
+          SKIP=false
+          if [ "$EVENT" = "schedule" ]; then
+            case "$SCHED" in
+              '30 14 * * 1-5') [ "$OFFSET" = "-0400" ] || SKIP=true ;;
+              '30 15 * * 1-5') [ "$OFFSET" = "-0500" ] || SKIP=true ;;
+            esac
+          fi
+          echo "New York offset $OFFSET, schedule '$SCHED' -> skip=$SKIP"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
   scan:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
@@ -56,6 +81,7 @@ jobs:
         run: bash db_state.sh pull
 
       - name: Run skew_tracker.py (AM scan)
+        id: scan
         run: |
           # On failure print the log's tail HERE (on 9/28 the reason was lost with the runner).
           if python skew_tracker.py > skew_manual_am.log 2>&1; then
@@ -74,9 +100,10 @@ jobs:
           echo "Labeling complete"
 
       # Persist the DB back to the release — the ONLY durable copy. A new, digest-verified
-      # snapshot; earlier generations are kept (audit F09).
+      # snapshot; earlier generations are kept (audit F09). Runs even if labelling failed,
+      # so a research-label problem never throws away the scan itself (re-audit).
       - name: Store database state
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ always() && github.event.inputs.dry_run != 'true' && steps.scan.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash db_state.sh push

@@ -1,9 +1,13 @@
 name: Skew PM - auto scan, label, scanner, signal
 
 # Trigger:
-#  - 19:45 UTC = 2:45 PM CDT (Mar-Nov), Mon-Fri, plus a guarded BACKUP at 21:00 UTC
-#    DST: Nov 1, 2026 — shift BOTH to 20:45 / 22:00 UTC (2:45 PM / 4:00 PM CST)
+#  - 15:45 New York time (2:45 PM Central), Mon-Fri, all year, plus a guarded BACKUP
 #  - Manual via Actions tab
+# NO MANUAL DST SHIFTS (2026-10-04). GitHub cron is UTC, so the scan has a summer cron
+# (19:45 UTC = 15:45 EDT) and a winter cron (20:45 UTC = 15:45 EST). The guard reads WHICH
+# cron fired (github.event.schedule) and New York's current UTC offset, and skips the twin
+# that is wrong for the season. It also refuses any scheduled scan before 15:30 New York
+# time, so a mis-set cron can never produce a mid-session signal.
 on:
   # Native `schedule:` was REMOVED 2026-06-15 because it fired ~1hr late AND duplicated
   # cron-job.org, running the PM bot TWICE and sending TWO signals/day (NNE on-time +
@@ -12,13 +16,16 @@ on:
   # RE-ADDED 2026-07-20 *with* the `guard` job below, which skips the run if today's PM
   # pipeline already completed — so we get redundancy WITHOUT the double-signal bug.
   schedule:
-    - cron: '45 19 * * 1-5'
+    - cron: '45 19 * * 1-5'   # 15:45 EDT (summer); skipped by the guard while New York is on EST
+    - cron: '45 20 * * 1-5'   # 15:45 EST (winter); skipped by the guard while New York is on EDT
     # BACKUP RUN (2026-10-04). auto_retry.yml was supposed to re-dispatch a failed scheduled
     # scan, but it NEVER fired: zero runs between 7/27 and 10/04. When both scans failed on
-    # 9/28, nothing retried, and that day produced no data and no signal. This second
-    # schedule is a retry that depends on no other workflow. If the 19:45 run completed,
-    # the guard sees today's completion marker and this run exits in seconds.
-    - cron: '0 21 * * 1-5'
+    # 9/28, nothing retried, and that day produced no data and no signal. This schedule is
+    # a retry that depends on no other workflow: 17:07 EDT / 16:07 EST, queued behind the
+    # primary if it is still running. If the primary completed, the guard sees today's
+    # completion marker and this run exits in seconds. (Not :00 — GitHub delays and drops
+    # scheduled runs most at the top of the hour.)
+    - cron: '7 21 * * 1-5'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -60,7 +67,28 @@ jobs:
         env:
           DRY: ${{ github.event.inputs.dry_run }}
           REPLAY: ${{ github.event.inputs.scan_date_override }}
+          EVENT: ${{ github.event_name }}
+          SCHED: ${{ github.event.schedule }}
         run: |
+          # SEASON GATE (scheduled runs only): run the twin that matches New York's season,
+          # and never scan before 15:30 New York time.
+          if [ "$EVENT" = "schedule" ]; then
+            OFFSET=$(TZ=America/New_York date +%z)            # -0400 = EDT, -0500 = EST
+            NOW_ET=$(TZ=America/New_York date +%H%M)
+            WRONG=""
+            case "$SCHED" in
+              '45 19 * * 1-5') [ "$OFFSET" = "-0400" ] || WRONG="summer-time cron while New York is on EST" ;;
+              '45 20 * * 1-5') [ "$OFFSET" = "-0500" ] || WRONG="winter-time cron while New York is on EDT" ;;
+            esac
+            if [ -z "$WRONG" ] && [ "$NOW_ET" -lt 1530 ]; then
+              WRONG="it is $NOW_ET New York time; a scheduled PM scan never runs before 15:30"
+            fi
+            if [ -n "$WRONG" ]; then
+              echo "Skipping: $WRONG (schedule '$SCHED', offset $OFFSET)."
+              { echo "skip=true"; echo "write=false"; echo "replay_date="; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           # Guard on the DATA, not on a commit message (changed 2026-08-28).
           # last_scan_pm.json is written ONLY when the whole PM pipeline finished: signal
           # decided, records pushed, database stored (audit F11, 2026-10-04). It used to be
@@ -153,17 +181,25 @@ jobs:
 
       # The scan takes ~40 min. Pick up whatever the intraday monitor committed meanwhile
       # (closes, MAE/MFE), so main.py decides against the CURRENT book and its commit does
-      # not collide with the monitor's.
+      # not collide with the monitor's. FAILS CLOSED (re-audit F10): deciding against a
+      # stale book is refused; the run goes red and the backup run decides instead.
       - name: Refresh portfolio state
+        id: refresh
         if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
-        run: git pull --ff-only origin "${{ github.ref_name }}" || echo "::warning::could not refresh portfolio state; main.py uses the checkout's copy"
+        run: |
+          for i in 1 2 3; do
+            git pull --ff-only origin "${{ github.ref_name }}" && exit 0
+            echo "refresh attempt $i failed; retrying in 15s"; sleep 15
+          done
+          echo "::error::could not refresh portfolio state; refusing to decide against a stale book"
+          exit 1
 
       # ===== STEP 3: SCANNER + FILTER + ALERTS (the bot) =====
       # Runs even if labelling failed: forward-return labels are research, not an input
-      # to today's decision.
+      # to today's decision. Never after a failed portfolio refresh.
       - name: Run Tier A Daily bot (scanner + filter + Telegram + X + Sheet)
         id: signal
-        if: ${{ !cancelled() && (steps.scan.outcome == 'success' || env.REPLAY_DATE != '') }}
+        if: ${{ !cancelled() && ((steps.scan.outcome == 'success' && steps.refresh.outcome == 'success') || env.REPLAY_DATE != '') }}
         env:
           SKEW_DB_PATH: ./skew_history.db
           UW_API_KEY: ${{ secrets.UW_API_KEY }}

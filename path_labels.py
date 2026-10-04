@@ -9,15 +9,20 @@ the one we traded — the stop-aware PATH the live rule would have walked:
   first_green_day   first session whose close is above entry (None = never green)
   days_to_t1        session on which the +10% target was touched (None = not yet)
   days_to_stop      session on which the -7% stop was touched (None = not yet)
-  mae_pct / mfe_pct deepest drawdown / best excursion before resolution
-  outcome           T1 | STOP | OPEN (unresolved, <20 bars) | EXPIRED (20 bars, neither)
+  mae_pct / mfe_pct deepest drawdown / best excursion before resolution (exit day: see exits.py)
+  outcome           T1 | STOP | OPEN (unresolved so far; censored, never a failure)
   r_live            P&L in R for the live rule (+10 / -7)
   r_stop5 r_stop6   SHADOW: what a -5% / -6% stop would have returned (pre-registered Q2)
   r_t12             SHADOW: what a +12% target would have returned (pre-registered Q1)
+  exit_ambiguous    1 = the exit bar touched BOTH levels; booked stop-first (an assumption,
+                    since a daily bar cannot order intraday prints)
+  exit_gap          1 = the exit filled at the open after a gap through a level
 
-Identical mechanics to monitor.py's day-walk and to every backtest: entry = signal-day
-close, walk from the next bar, STOP-first on a same-bar hit, 20-bar window.
-Idempotent: incomplete rows are recomputed every run until they resolve or expire.
+Mechanics: entry = signal-day close, walk from the next bar, every bar resolved by
+exits.resolve_bar (the live monitor's rule), NO time limit (the live book has none).
+The monitor sees intraday order on the day it acts; research sees only the final daily
+bar, so the two can still differ on an ambiguous bar — exit_ambiguous marks every such row.
+Idempotent: incomplete rows are recomputed every run until they resolve.
 
 Run: python path_labels.py        (uses SKEW_DB_PATH or ./skew_history.db)
 """
@@ -32,7 +37,6 @@ import pandas as pd
 import yfinance as yf
 
 DB = os.environ.get('SKEW_DB_PATH', 'skew_history.db')
-WINDOW = 20
 LIVE_T1, LIVE_STOP = 10.0, 7.0
 
 TIER_A = """SELECT ticker, scan_date, spot_close, put_wall_strike, atm_iv, skew
@@ -56,7 +60,7 @@ DDL = """CREATE TABLE IF NOT EXISTS tier_a_paths (
 # r_t8 / r_nevergreen_d2 / r_nevergreen_d3 (registered 2026-09-26): see hypotheses.json.
 ADD_COLS = [('call_wall_oi_d2', 'REAL'), ('r_t8', 'REAL'),
             ('r_nevergreen_d2', 'REAL'), ('r_nevergreen_d3', 'REAL'),
-            ('label_version', 'INTEGER')]
+            ('label_version', 'INTEGER'), ('exit_ambiguous', 'INTEGER'), ('exit_gap', 'INTEGER')]
 
 # LABEL_VERSION — bump whenever the labelling ENGINE changes. Every row whose stored
 # version differs is relabelled on the next run, so old and new rows can never silently
@@ -64,9 +68,11 @@ ADD_COLS = [('call_wall_oi_d2', 'REAL'), ('r_t8', 'REAL'),
 #   1  original walk: stop-first, stop always filled at exactly -stop_pct
 #   2  2026-10-04: shared exits.resolve_bar — gap-downs fill at the open, ambiguous
 #      bars booked STOP, identical to the live monitor
-#   3  2026-10-04: MAE/MFE count only the HELD part of the exit bar (exits.held_extremes,
-#      audit F20); prices beyond the fill came after the exit
-LABEL_VERSION = 3
+#   3  2026-10-04: MAE/MFE exclude prices beyond the exit fill on the exit bar
+#      (exits.held_extremes, audit F20)
+#   4  2026-10-04 (re-audit R1): NO 20-bar timeout (the live book has none; ADSK took 22
+#      sessions), unresolved = OPEN/censored, EXPIRED retired; exit_ambiguous/exit_gap flags
+LABEL_VERSION = 4
 
 
 def walk(fut, entry, t1_pct, stop_pct):
@@ -85,30 +91,35 @@ def walk(fut, entry, t1_pct, stop_pct):
         if res is not None:
             reason, px, _note = res
             return (px / entry - 1) * 100, k, ('T1' if reason == 'TP1' else 'STOP')
-    if len(fut) >= WINDOW:
-        return (float(fut.iloc[-1]['Close']) / entry - 1) * 100, None, 'EXPIRED'
+    # No time limit (re-audit R1): the live book holds until T1 or the stop, so an
+    # unresolved path is OPEN (censored), however many bars it has run.
     return (float(fut.iloc[-1]['Close']) / entry - 1) * 100 if len(fut) else 0.0, None, 'OPEN'
+
+
+NOT_YET = 'not_yet'      # no session after entry yet: nothing to label, and not an error
 
 
 def label_one(g, d, entry):
     ix = g.index[g.date == d]
     if len(ix) == 0:
-        return None
+        return None                            # entry date absent from the price data
     i = int(ix[0])
-    fut = g.iloc[i + 1:i + 1 + WINDOW]
+    fut = g.iloc[i + 1:]                       # every bar since entry: no research timeout
     if len(fut) == 0:
-        return None
+        return NOT_YET
     pnl, day, out = walk(fut, entry, LIVE_T1, LIVE_STOP)
     # path stats up to resolution (or all bars seen). AUDIT F20: on the exit bar only the
     # part the position HELD counts — the same rule the live monitor uses.
     upto = fut.iloc[:day] if day else fut
     lows, highs = list(upto['Low'].astype(float)), list(upto['High'].astype(float))
+    ambiguous = gap = None
     if day:
         from exits import resolve_bar, held_extremes
         xb = fut.iloc[day - 1]
         o, h, l = float(xb['Open']), float(xb['High']), float(xb['Low'])
-        lows[-1], highs[-1] = held_extremes(
-            o, h, l, resolve_bar(o, h, l, entry * (1 + LIVE_T1 / 100), entry * (1 - LIVE_STOP / 100)))
+        xres = resolve_bar(o, h, l, entry * (1 + LIVE_T1 / 100), entry * (1 - LIVE_STOP / 100))
+        lows[-1], highs[-1] = held_extremes(o, h, l, xres)
+        ambiguous, gap = int(xres[2].startswith('AMBIGUOUS')), int(xres[2].startswith('gapped'))
     mae = (min(lows) / entry - 1) * 100
     mfe = (max(highs) / entry - 1) * 100
     green = next((k for k, (_, r) in enumerate(upto.iterrows(), start=1)
@@ -119,8 +130,8 @@ def label_one(g, d, entry):
         'days_to_stop': day if out == 'STOP' else None,
         'mae_pct': round(mae, 3), 'mfe_pct': round(mfe, 3),
         'outcome': out, 'pnl_pct': round(pnl, 3), 'r_live': round(pnl / LIVE_STOP, 4),
-        'bars_seen': len(fut), 'complete': int(out in ('T1', 'STOP', 'EXPIRED')),
-        'label_version': LABEL_VERSION,
+        'bars_seen': len(fut), 'complete': int(out in ('T1', 'STOP')),
+        'label_version': LABEL_VERSION, 'exit_ambiguous': ambiguous, 'exit_gap': gap,
     }
     # shadows — each walked independently with its own rule; NULL while still OPEN
     for col, t1, sp in (('r_stop5', 10.0, 5.0), ('r_stop6', 10.0, 6.0),
@@ -169,16 +180,9 @@ def backfill_call_wall_oi_d2(con):
         print(f'[paths] call_wall_oi_d2 backfilled for {n} rows')
 
 
-def main():
-    con = sqlite3.connect(DB)
-    con.execute(DDL)
-    for col, typ in ADD_COLS:                       # idempotent schema migration
-        try:
-            con.execute(f'ALTER TABLE tier_a_paths ADD COLUMN {col} {typ}')
-        except sqlite3.OperationalError:
-            pass                                    # already there
-    backfill_call_wall_oi_d2(con)
-    today = dt.date.today()
+def qualifiers(con, today) -> pd.DataFrame:
+    """Every Tier A qualifier up to yesterday that the live gates would admit: the cohort
+    the path table must cover completely. Shared with self_audit's coverage check (R9)."""
     q = pd.read_sql_query(TIER_A, con, params=((today - dt.timedelta(days=1)).isoformat(),))
     # SAME UNIVERSE AS THE LIVE BOT (fixed 2026-09-02). scanner_reader.read_tier_a drops
     # leveraged ETFs/ETNs and sector-Unknown names; the raw SQL here did not, so 7 of 57
@@ -193,13 +197,27 @@ def main():
     q = q[(q.cushion_pct >= 0) & (q.cushion_pct <= 100)]
     q = q[(q['skew'] <= -7) | (q.vol_cushion >= 3.0)].copy()
     q['n_legs'] = (q['skew'] <= -7).astype(int) + (q.vol_cushion >= 3.0).astype(int)
+    return q
+
+
+def main():
+    con = sqlite3.connect(DB)
+    con.execute(DDL)
+    for col, typ in ADD_COLS:                       # idempotent schema migration
+        try:
+            con.execute(f'ALTER TABLE tier_a_paths ADD COLUMN {col} {typ}')
+        except sqlite3.OperationalError:
+            pass                                    # already there
+    backfill_call_wall_oi_d2(con)
+    today = dt.date.today()
+    q = qualifiers(con, today)
 
     # A row counts as done only if EVERY shadow is filled, so adding a new shadow column
     # self-heals: existing rows are relabelled once to populate it.
     # AUDIT F21: EVERY shadow must be resolved, not just the newest ones. A +10% winner
     # can satisfy the target-8 and never-green columns while the target-12 shadow is still
-    # walking, and the old filter would then freeze r_t12 as NULL forever. Each walk ends
-    # in T1, STOP or EXPIRED at WINDOW bars, so this cannot loop indefinitely.
+    # walking, and the old filter would then freeze r_t12 as NULL forever. With no time
+    # limit (R1) an unresolved row is simply relabelled each run until it resolves.
     done = pd.read_sql_query(f"""SELECT ticker, scan_date FROM tier_a_paths
         WHERE complete=1 AND label_version = {LABEL_VERSION}
           AND r_stop5 IS NOT NULL AND r_stop6 IS NOT NULL AND r_t12 IS NOT NULL
@@ -214,16 +232,23 @@ def main():
                      start=(pd.to_datetime(todo.scan_date.min()) - pd.Timedelta(days=3)).date().isoformat(),
                      end=(today + dt.timedelta(days=1)).isoformat(),
                      interval='1d', auto_adjust=True, progress=False, group_by='ticker', threads=True)
-    n = 0
+    n, unlabelled = 0, []
     for tk, grp in todo.groupby('ticker'):
         try:
             g = px[tk][['Open', 'High', 'Low', 'Close']].dropna().reset_index()
         except Exception:
+            # Re-audit R9: this was a silent `continue`, so a failed download left a
+            # qualifier unlabelled (or on an old label version) while the job reported
+            # success. It is now named, and self_audit blocks READY while coverage is short.
+            unlabelled += [f'{tk} {d}' for d in grp.scan_date]
             continue
         g['date'] = pd.to_datetime(g['Date']).dt.date.astype(str)
         for _, row in grp.iterrows():
             rec = label_one(g, row.scan_date, float(row.spot_close))
+            if rec == NOT_YET:
+                continue
             if not rec:
+                unlabelled.append(f'{tk} {row.scan_date}')
                 continue
             rec.update({'ticker': tk, 'scan_date': row.scan_date, 'tradeable': 1,
                         'n_legs': int(row.n_legs), 'labeled_at': today.isoformat()})
@@ -234,6 +259,9 @@ def main():
     backfill_call_wall_oi_d2(con)     # again: INSERT OR REPLACE above wiped it on relabeled rows
     tot = con.execute('SELECT COUNT(*), SUM(complete) FROM tier_a_paths').fetchone()
     print(f'[paths] wrote {n} rows; table now {tot[0]} rows, {tot[1]} complete')
+    if unlabelled:
+        print(f'::warning::[paths] {len(unlabelled)} qualifier(s) NOT labelled (no usable '
+              f'price data): {", ".join(unlabelled[:20])}')
     con.close()
     return n
 

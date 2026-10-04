@@ -37,27 +37,29 @@ def model_exits(ticker, entry_date, entry_price, window_days=WINDOW_DAYS):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] for c in df.columns]
 
-    def first_high_cross(pct):
+    # RE-AUDIT R1 (2026-10-04): this counted a level as reached when the stop touched on
+    # the SAME day (target-first on ties) and ignored gaps. Every bar is now resolved by
+    # exits.resolve_bar, the live monitor's rule: a day touching both is a stop, and a gap
+    # through a level resolves at the open.
+    from exits import resolve_bar
+    st = entry_price * (1 + STOP / 100)
+    bars = [(float(r['Open']), float(r['High']), float(r['Low'])) for _, r in df.iterrows()]
+
+    def hit_before_stop(pct):
+        """Day a +pct target is reached before the stop (shared rule), else None."""
         tgt = entry_price * (1 + pct / 100)
-        for i, (_, row) in enumerate(df.iterrows(), 1):
-            if float(row['High']) >= tgt:
-                return i
+        for i, (o, h, l) in enumerate(bars, 1):
+            res = resolve_bar(o, h, l, tgt, st)
+            if res is not None:
+                return i if res[0] == 'TP1' else None
         return None
 
     stop_day = None
-    st = entry_price * (1 + STOP / 100)
-    for i, (_, row) in enumerate(df.iterrows(), 1):
-        if float(row['Low']) <= st:
+    for i, (o, h, l) in enumerate(bars, 1):
+        res = resolve_bar(o, h, l, float('inf'), st)       # the stop alone: first touch/gap
+        if res is not None:
             stop_day = i
             break
-
-    def hit_before_stop(pct):
-        d = first_high_cross(pct)
-        if d is None:
-            return None
-        if stop_day is not None and stop_day < d:
-            return None          # stopped out before reaching this level
-        return d
 
     conserv_day = hit_before_stop(CONSERV)
     tp1_day = hit_before_stop(TP1)

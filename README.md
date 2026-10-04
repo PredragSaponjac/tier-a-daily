@@ -23,9 +23,16 @@ public Google Sheet.
 
 ## How exits are booked
 
-One shared rule (`exits.py`) for the live book and all research labels: a bar touching both
-levels is booked as the stop; a gap through the stop fills at the open; a gap through the
-target is booked at the target. MAE/MFE count only the part of a bar the position held.
+One shared rule (`exits.py`) for the live monitor, the research labels and the legacy
+backtest/exit-model scripts: a daily bar touching both levels is booked as the stop (an
+assumption, flagged on every such row: a daily bar cannot say which came first); a gap
+through the stop fills at the open; a gap through the target is booked at the target. No
+time limit anywhere: a position exits only at the target or the stop, like the live book.
+
+MAE/MFE ("worst drawdown held through", "best unrealised reached") exclude prices beyond the
+exit fill. On the exit day the OTHER side of the bar is still included, because daily data
+cannot show whether it came before or after the exit; for that one day the numbers are
+bounds, not exact. The monitor also timestamps each new extreme it observes live.
 
 ## Performance
 
@@ -39,8 +46,14 @@ interval for mean P&L per trade includes zero.
 
 - `skew_history.db` lives as versioned, digest-verified snapshots on the `db-state` release
   (`db_state.py`); earlier generations are kept, and a stale writer cannot overwrite a newer one.
+  A writer that loses a simultaneous upload withdraws its copy and retries.
 - AM scan, PM scan and the weekly audit share one writer queue; the PM run has a guarded
   backup run and marks itself complete only after records and database are stored.
+- Delivery runs from OUTBOXES: each day's decision is archived before anything is sent
+  (`signals/`, with an immutable copy per run in `signals/runs/`), and each close is
+  recorded before it is announced (`closed_trades.json`). Every channel's result is stored,
+  so a retry resumes the same decision instead of deciding or posting again; X is retried
+  only after a definite rejection and never when the post may already be live.
 - `preflight.py` exercises the live code paths and the audit fixes on every push.
 
 ## CLI

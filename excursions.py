@@ -43,17 +43,24 @@ def save(trades: list):
         json.dump(trades, f, indent=2)
 
 
-def compute_excursion(ticker: str, entry_date: str, entry_price: float):
+def compute_excursion(ticker: str, entry_date: str, entry_price: float, exit_date: str | None = None):
     """Pull intraday bars and compute heat-before-peak + peak + days.
 
     Returns dict(heat_pct, peak_pct, peak_day, src) or None if no data.
     Run this WHILE the trade is < ~55 days old (15-min still available).
+
+    RE-AUDIT R5 (2026-10-04): the window started ON the entry date, so for an entry at the
+    close it counted that day's earlier prices (before the trade existed: an entry-day high
+    of 130 on a 100 entry read as +30% MFE), and it ran a fixed window past the exit. It now
+    starts the session AFTER entry and, when the exit date is known, stops at the exit day.
+    Day 1 = the first session after entry (the convention path_labels uses).
     """
     import yfinance as yf
     import pandas as pd
     e = datetime.fromisoformat(entry_date)
-    start = e.strftime('%Y-%m-%d')
-    end = (e + timedelta(days=HOLD_WINDOW_DAYS)).strftime('%Y-%m-%d')
+    start = (e + timedelta(days=1)).strftime('%Y-%m-%d')
+    end = ((datetime.fromisoformat(exit_date) + timedelta(days=1)) if exit_date
+           else (e + timedelta(days=HOLD_WINDOW_DAYS))).strftime('%Y-%m-%d')
 
     def pull(interval):
         try:
@@ -76,8 +83,8 @@ def compute_excursion(ticker: str, entry_date: str, entry_price: float):
     if df is None or len(df) == 0:
         return None
 
-    # Map each bar to a trading-day index (1 = entry day) so 'day' counts trading
-    # days, not calendar days (more meaningful to a trader).
+    # Map each bar to a trading-day index (1 = first session AFTER entry) so 'day' counts
+    # trading days, not calendar days (more meaningful to a trader).
     tdays = sorted(set(ix.date() for ix in df.index))
     tdidx = {d: i + 1 for i, d in enumerate(tdays)}
 

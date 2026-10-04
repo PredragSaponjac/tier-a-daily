@@ -9,9 +9,11 @@ name: Auto-retry failed scans
 # IT NEVER FIRED (found 2026-10-04): zero runs from 7/27 to 10/04, not even skipped ones,
 # so the trigger itself never matched. When both scans failed on 9/28, nothing retried.
 # Suspected cause: both workflow names contained "+", which GitHub may treat as a pattern
-# character in this filter. The names were changed to avoid "+" on 2026-10-04. If this
-# workflow now records a (skipped) run after each AM/PM run, that was the cause.
-# It is NO LONGER the safety net: skew_pm.yml has its own guarded 21:00 UTC backup run.
+# character in this filter. The names were changed to avoid "+" on 2026-10-04, and this
+# workflow recorded its FIRST run ever minutes later (19:23 UTC, correctly skipped: the
+# run it followed was a manual replay). Strong evidence for the "+" explanation; a retry
+# after a real failed SCHEDULED scan has still not been exercised.
+# It is NO LONGER the safety net: skew_pm.yml has its own guarded backup run (21:07 UTC).
 # This stays as a faster second chance (immediately after a failure, AM included).
 #
 # LOOP SAFETY: retries only when the FAILED run was event == 'schedule'. The retry itself

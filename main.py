@@ -46,12 +46,14 @@ def select_taken(tradeable, top, open_tickers, sel, rank_key):
     AUDIT F06 (2026-10-04): room was max(1, cap - open) — "floor 1 so today's top always
     goes". With 6 already open that admitted a 7th, and on later days an 8th: the cap
     the user agreed to (6, each sized at 1/6 of the book) did not hold. Now max(0, ...).
+    Re-audit: the top-only switch (OFF) obeys the same cap; it used to bypass it.
     """
+    room = max(0, int(sel.get('max_concurrent', 6)) - len(open_tickers))
     if not sel.get('take_all_qualified'):
-        return ([top] if top is not None and top['ticker'] not in open_tickers else []), []
+        fresh = top is not None and top['ticker'] not in open_tickers
+        return ([top] if fresh and room > 0 else []), ([top['ticker']] if fresh and room == 0 else [])
     ranked = [c for c in sorted(tradeable, key=rank_key, reverse=True)
               if c['ticker'] not in open_tickers]
-    room = max(0, int(sel.get('max_concurrent', 6)) - len(open_tickers))
     return ranked[:room], [c['ticker'] for c in ranked[room:]]
 
 
@@ -63,16 +65,146 @@ def effective_dry_run(scan_date, live: bool, dry_run: bool) -> bool:
     return bool(dry_run or (scan_date and not live))
 
 
-def prior_decision(scan_date: str):
-    """AUDIT F11 (2026-10-04). Pure apart from reading the archive, so preflight can test it.
-    A failed PM run is now retried (21:00 backup, auto-retry). If the first attempt delivered
-    and archived its decision but a LATER step failed (data check, DB upload), the retry must
-    not publish the same signal twice. The archive is committed right after delivery, so a
-    retry's fresh checkout sees it. A recorded delivery FAILURE is not a decision: retried."""
-    prior = archive.load_archive(scan_date)
-    if prior is not None and 'DELIVERY FAILED' not in (prior.get('notes') or ''):
-        return prior
-    return None
+# ---------------------------------------------------------------- the decision OUTBOX
+# RE-AUDIT R2/R6 (2026-10-04). Before: a decision was sent first and archived afterwards,
+# so a crash between an accepted Telegram send and the archive (e.g. a failed position
+# write) left no record, and the retry sent the same signal again. Failed "no signal"
+# messages returned normally and were never retried, and a rejected X entry was never
+# retried at all. Now:
+#   1. the decision is ARCHIVED FIRST, with the exact texts and position specs (the outbox)
+#      and every channel 'pending';
+#   2. run_outbox() delivers from that record, in order, storing each channel's result:
+#      Telegram -> positions (only after Telegram succeeded) -> X;
+#   3. a retry RESUMES the archived decision (only its unfinished channels), never a new
+#      decision from a fresh rescan, and X is checked against x_posted.log before posting.
+# Residual, stated: a crash in the instant between Telegram accepting a message and its
+# status being written leaves it 'pending', and the retry sends it again (Telegram is the
+# private channel, so that duplicate is accepted). X is never re-posted on an unknown result.
+X_MAX_ATTEMPTS = 3
+RETRYABLE = {'telegram': ('pending', 'failed'), 'positions': ('pending', 'failed'),
+             'x': ('pending', 'rejected')}
+
+
+def _x_autopost() -> bool:
+    return os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() in ('1', 'true', 'yes')
+
+
+def outbox_pending(delivery: dict) -> bool:
+    return any((delivery or {}).get(ch) in st for ch, st in RETRYABLE.items())
+
+
+def prior_state(scan_date: str):
+    """('none', None)            nothing decided for this date yet
+       ('done', rec)             decided, nothing left to deliver
+       ('resume', rec)           an archived decision with undelivered channels
+       ('legacy_retry', rec)     pre-outbox archive that recorded a delivery failure
+    Pure apart from reading the archive, so preflight can test it."""
+    rec = archive.load_archive(scan_date)
+    if rec is None:
+        return 'none', None
+    if 'delivery' not in rec:                  # archives written before 2026-10-04
+        return ('legacy_retry', rec) if 'DELIVERY FAILED' in (rec.get('notes') or '') else ('done', rec)
+    return ('resume', rec) if outbox_pending(rec['delivery']) else ('done', rec)
+
+
+def run_outbox(scan_date: str) -> bool:
+    """Deliver whatever the archived decision for scan_date still has pending. True when no
+    retryable channel remains (the run may complete), False when a retry is needed."""
+    rec = archive.load_archive(scan_date)
+    d, box = rec.get('delivery') or {}, rec.get('outbox') or {}
+    # 1. Telegram, required for every decision. A failure stops here: nothing is opened and
+    #    nothing is published before the user has been told.
+    if d.get('telegram') in RETRYABLE['telegram']:
+        n = int(d.get('telegram_attempts', 0)) + 1
+        ok = send_telegram(box['telegram'])
+        d = archive.update_delivery(scan_date, telegram='sent' if ok else 'failed', telegram_attempts=n)['delivery']
+        print(f"Telegram send: {'OK' if ok else 'FAILED'} (attempt {n})")
+        if not ok:
+            print('::error::Telegram delivery failed; nothing opened or posted; the retry resends it')
+            return False
+    # 2. Positions, idempotent on (ticker, entry_date), at the ARCHIVED entry levels.
+    if d.get('positions') in RETRYABLE['positions']:
+        try:
+            for spec in box.get('positions', []):
+                added = PT.add_position(spec['candidate'], T1=spec['T1'], T2=spec['T2'], T3=spec['T3'],
+                                        STOP=spec['STOP'], params_version=spec['params_version'])
+                print(f"Position tracker: {spec['candidate']['ticker']} "
+                      f"{'added' if added else 'already tracking (idempotent skip)'}")
+        except Exception as e:
+            archive.update_delivery(scan_date, positions='failed', positions_error=f'{type(e).__name__}: {e}'[:300])
+            print(f'::error::position tracking failed ({e}); the retry resumes it')
+            return False
+        d = archive.update_delivery(scan_date, positions='tracked')['delivery']
+    # 3. X, the public entry. Retried only after a DEFINITE rejection and never if
+    #    x_posted.log already holds it; an unanswered post is left for a human check.
+    if d.get('x') in RETRYABLE['x']:
+        text = box['x']
+        n = int(d.get('x_attempts', 0)) + 1
+        tid = x_post.already_posted(text.splitlines()[0], since=scan_date)
+        status = 'posted' if tid else None
+        if status is None:
+            status, tid = x_post.post_to_x_status(text)
+        if status == 'posted':
+            archive.update_delivery(scan_date, x='posted', x_attempts=n, x_id=tid)
+            print('X post: OK')
+        else:
+            os.makedirs('x_drafts', exist_ok=True)
+            draft = f"x_drafts/{scan_date}_{box.get('featured', 'signal')}.txt"
+            with open(draft, 'w', encoding='utf-8') as fh:
+                fh.write(text)
+            final = status != 'rejected' or n >= X_MAX_ATTEMPTS
+            st = ('gave_up' if status == 'rejected' else status) if final else 'rejected'
+            archive.update_delivery(scan_date, x=st, x_attempts=n, x_draft=draft)
+            print(f'::warning::X entry post {st} (attempt {n}); draft saved to {draft}')
+            if n == 1 or final:
+                why = {'rejected': 'X rejected it', 'unknown': 'X did not answer — it MAY be live; check first',
+                       'not_configured': 'no X credentials'}.get(status, status)
+                send_telegram(f"⚠️ {box.get('featured')} ENTRY is NOT confirmed on X ({why}). The position "
+                              f"is tracked; the public entry is missing. Draft: {draft}."
+                              + (' The next run retries.' if not final else ' Post it by hand.'))
+            if not final:
+                return False
+    if box.get('positions'):
+        try:
+            sheet_sync.sync_all()
+        except Exception as e:
+            print(f'Sheet sync skipped: {e}')
+    return True
+
+
+def record_and_deliver(scan_date, enriched, picked, min_score, notes, telegram_text, *,
+                       taken=(), x_text=None, featured=None, context=None):
+    """Archive the decision FIRST (with its outbox), then deliver it. Exits non-zero when a
+    channel still needs a retry, so the PM completion marker is not written and the backup
+    run resumes it."""
+    import parameters as _P
+    specs = []
+    tps = _P.tp_pcts()
+    for t in taken:
+        entry = t['spot_close']
+        f = t.get('filter') or {}
+        specs.append({'candidate': {'ticker': t['ticker'], 'scan_date': t['scan_date'], 'spot_close': entry,
+                                    'filter': {'score': f.get('score'), 'raw': f.get('raw') or {}}},
+                      'T1': entry * (1 + tps['tp1'] / 100), 'T2': entry * (1 + tps['tp2'] / 100),
+                      'T3': entry * (1 + tps['tp3'] / 100), 'STOP': entry * (1 + _P.stop_pct() / 100),
+                      'params_version': _P.version()})
+    if x_text is not None and not _x_autopost():
+        # X auto-posting gated off: the post is PREPARED for manual review, never sent.
+        os.makedirs('x_drafts', exist_ok=True)
+        draft = f'x_drafts/{scan_date}_{featured}.txt'
+        with open(draft, 'w', encoding='utf-8') as fh:
+            fh.write(x_text)
+        print(f'X auto-post DISABLED (safe default) — draft saved to {draft} for manual review.')
+        x_state = 'draft'
+    else:
+        x_state = 'pending' if x_text is not None else 'n/a'
+    delivery = {'telegram': 'pending', 'positions': 'pending' if specs else 'n/a', 'x': x_state}
+    outbox = {'telegram': telegram_text, 'x': x_text, 'positions': specs, 'featured': featured}
+    archive.archive_daily_run(scan_date, enriched, picked, min_score, P.version(), notes=notes,
+                              taken_tickers=[t['ticker'] for t in taken], delivery=delivery,
+                              outbox=outbox, context=context)
+    if not run_outbox(scan_date):
+        raise SystemExit(1)
 
 
 def main():
@@ -116,23 +248,29 @@ def main():
             print(f"--require-today: latest scan {scan_date} != today {today_str}. Exit (probably holiday/weekend).")
             return
 
-    # Retry safety (audit F11): never deliver a decision already archived for this date.
+    # Retry safety (audit F11 + re-audit R2): a date is decided ONCE. A retry either finds
+    # it fully delivered, or RESUMES the archived decision's unfinished channels; it never
+    # decides again from a fresh rescan.
     if not args.dry_run and not args.resend:
-        prior = prior_decision(scan_date)
-        if prior is not None:
+        state, prior = prior_state(scan_date)
+        if state == 'done':
             print(f"Already decided for {scan_date} (archived {prior.get('run_at')}, tracked "
                   f"{prior.get('taken_tickers')}): NOT delivering again. --resend overrides.")
+            return
+        if state == 'resume':
+            print(f"Resuming the archived decision for {scan_date} (run {prior.get('run_id')}): "
+                  f"{prior.get('delivery')}")
+            if not run_outbox(scan_date):
+                raise SystemExit(1)
             return
 
     if len(candidates) == 0:
         msg = format_no_signal(scan_date, 0, 0)
         print(f"\n--- ALERT ---\n{msg}\n")
         if not args.dry_run:
-            ok = send_telegram(msg)
-            print(f"Telegram send: {'OK' if ok else 'FAILED'}")
-            # Archive empty day too (so we know the bot ran)
-            archive.archive_daily_run(scan_date, [], None, min_score, P.version(),
-                                      notes='No Tier A candidates today.')
+            # Archived even on an empty day (so we know the bot ran); the Telegram note is a
+            # required delivery now: a failed send is retried, not silently dropped (R6).
+            record_and_deliver(scan_date, [], None, min_score, 'No Tier A candidates today.', msg)
         return
 
     # 2. Compute UW filter scores
@@ -223,20 +361,18 @@ def main():
             msg = format_quota_blocked(scan_date, len(candidates), n_unscored)
             print(f"\n--- ALERT ---\n{msg}\n")
             if not args.dry_run:
-                ok = send_telegram(msg)
-                print(f"Telegram send: {'OK' if ok else 'FAILED'}")
-                archive.archive_daily_run(scan_date, enriched, None, min_score, P.version(),
-                                          notes='UW daily quota exhausted — flow scoring unavailable, no trade (fail-safe).')
+                record_and_deliver(scan_date, enriched, None, min_score,
+                                   'UW daily quota exhausted — flow scoring unavailable, no trade (fail-safe).',
+                                   msg, context={'portfolio_before': sorted(p['ticker'] for p in PT.list_open())})
             return
 
         print(f"\nNo candidate passed vetoes AND score >= {min_score}. No alert.")
         msg = format_no_signal(scan_date, len(candidates), len(vetoed)) + watch_block
         print(f"\n--- ALERT ---\n{msg}\n")
         if not args.dry_run:
-            ok = send_telegram(msg)
-            print(f"Telegram send: {'OK' if ok else 'FAILED'}")
-            archive.archive_daily_run(scan_date, enriched, None, min_score, P.version(),
-                                      notes='Tier A surfaced but no candidate qualified.')
+            record_and_deliver(scan_date, enriched, None, min_score,
+                               'Tier A surfaced but no candidate qualified.', msg,
+                               context={'portfolio_before': sorted(p['ticker'] for p in PT.list_open())})
         return
 
     # Day pool for runner-up context
@@ -266,9 +402,11 @@ def main():
                 f"No new position, no X post.")
         print(f"\n--- NO ENTRY ---\n{note}\n")
         if not args.dry_run:
-            send_telegram(note)
-            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version(),
-                                      notes=f'Qualified but none admitted: {why}', taken_tickers=[])
+            record_and_deliver(scan_date, enriched, top['ticker'], min_score,
+                               f'Qualified but none admitted: {why}', note,
+                               context={'portfolio_before': sorted(open_tks),
+                                        'max_concurrent': sel.get('max_concurrent', 6),
+                                        'cap_skipped': skipped_for_cap})
         return
 
     # AUDIT F18: feature a name that was ACTUALLY admitted. `top` is ranked before open
@@ -282,69 +420,20 @@ def main():
 
     if args.dry_run:
         print("(dry-run: not sending, not adding to tracker)")
-    else:
-        ok = send_telegram(msg)
-        print(f"Telegram send: {'OK' if ok else 'FAILED'}")
-        if not ok:
-            # AUDIT F19: a failed Telegram send used to return normally and persist
-            # NOTHING — the decision vanished and the run showed green. No position is
-            # opened unannounced (entries and closes must stay symmetric in public), but
-            # the decision is archived and the run FAILS so a human sees it.
-            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version(),
-                                      notes=f'TELEGRAM DELIVERY FAILED — no position opened. '
-                                            f'Would have tracked: {[t["ticker"] for t in taken]}',
-                                      taken_tickers=[])
-            print('::error::Telegram delivery failed; decision archived, no position opened')
-            raise SystemExit(1)
-        if ok:
-            # Compute T1/T2/T3/STOP from entry + parameters, for EVERY tracked name
-            tps = P.tp_pcts()
-            n_added = 0
-            for t in taken:
-                entry = t['spot_close']
-                T1 = entry * (1 + tps['tp1']/100)
-                T2 = entry * (1 + tps['tp2']/100)
-                T3 = entry * (1 + tps['tp3']/100)
-                STOP = entry * (1 + P.stop_pct()/100)
-                added = PT.add_position(t, T1=T1, T2=T2, T3=T3, STOP=STOP, params_version=P.version())
-                n_added += int(bool(added))
-                print(f"Position tracker: {t['ticker']} {'added' if added else 'already tracking (idempotent skip)'}")
-            print(f"Position tracker: {n_added} new position(s) from {len(taken)} tracked name(s)")
-            # Archive the full daily record (all candidates + picked + every name taken)
-            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version(),
-                                      taken_tickers=[t['ticker'] for t in taken])
-            # X auto-posting is GATED OFF by default. A bad/unstable pick must NEVER
-            # auto-publish to a public account again (see the 2026-06-12 RUM incident:
-            # a micro-cap whose skew flipped bearish intraday was auto-posted before
-            # anyone could look). The bot now PREPARES the post and saves it as a draft
-            # for manual review; it only auto-posts if ENABLE_X_AUTOPOST is explicitly set.
-            x_msg = x_post.format_signal_for_x(featured, day_pool, taken=taken)
-            if os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() in ('1', 'true', 'yes'):
-                x_ok = x_post.post_to_x(x_msg)
-                if x_ok:
-                    print('X post: OK')
-                else:
-                    # AUDIT F19: a failed ENTRY post created no draft and no alert, so a
-                    # tracked position could exist with no public entry. Mirror the close
-                    # path: save the draft and tell the user to post it by hand.
-                    os.makedirs('x_drafts', exist_ok=True)
-                    draft = f"x_drafts/{scan_date}_{featured['ticker']}.txt"
-                    with open(draft, 'w', encoding='utf-8') as fh:
-                        fh.write(x_msg)
-                    send_telegram(f"⚠️ {featured['ticker']} ENTRY was NOT published on X (API rejected "
-                                  f"it). Position is tracked but has no public entry. Draft: {draft}")
-                    print(f'::warning::X entry post failed; draft saved to {draft}')
-            else:
-                try:
-                    os.makedirs('x_drafts', exist_ok=True)
-                    draft = f"x_drafts/{scan_date}_{featured['ticker']}.txt"
-                    with open(draft, 'w', encoding='utf-8') as fh:
-                        fh.write(x_msg)
-                    print(f"X auto-post DISABLED (safe default) — draft saved to {draft} for manual review.")
-                except Exception as e:
-                    print(f"X auto-post disabled; draft save failed: {e}")
-            # Optional: sync Google Sheet if configured
-            sheet_sync.sync_all()
+        return
+    # X auto-posting is gated by ENABLE_X_AUTOPOST (see the 2026-06-12 RUM incident: a
+    # micro-cap whose skew flipped bearish intraday was auto-posted before anyone could
+    # look). Gated off, the post is prepared as a draft for manual review, never sent.
+    # The decision (texts, positions at the archived entry levels) is archived FIRST, then
+    # delivered: Telegram -> positions (only once Telegram succeeded: no position is ever
+    # opened unannounced) -> X. A failure leaves the run red and the backup run resumes
+    # exactly this decision (audit F19, re-audit R2/R6).
+    record_and_deliver(scan_date, enriched, top['ticker'], min_score, '', msg, taken=taken,
+                       x_text=x_post.format_signal_for_x(featured, day_pool, taken=taken),
+                       featured=featured['ticker'],
+                       context={'portfolio_before': sorted(open_tks),
+                                'max_concurrent': sel.get('max_concurrent', 6),
+                                'cap_skipped': skipped_for_cap})
 
 
 if __name__ == '__main__':

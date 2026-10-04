@@ -46,6 +46,13 @@ def main():
         con.close()
     except Exception as e:                       # never block the commit on this
         rec['error'] = f'{type(e).__name__}: {e}'
+    # The release snapshot this run stored (or pulled, if it stored nothing): the heartbeat
+    # checks THIS generation exists, not merely that some asset is recent (re-audit, 10/04).
+    try:
+        with open(os.environ.get('DB_STATE_GEN_FILE', '.db_generation.json'), encoding='utf-8') as fh:
+            rec['db_generation'] = json.load(fh).get('name')
+    except (OSError, ValueError):
+        rec['db_generation'] = None
     with open(out, 'w', encoding='utf-8') as fh:
         json.dump(rec, fh, indent=2)
     print(f'[marker] wrote {out}: {rec.get("latest_scan_date")} '

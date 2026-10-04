@@ -34,33 +34,65 @@ def _session():
 
 def post_to_x(text: str) -> bool:
     """Post a single tweet. Returns True on success."""
+    return post_to_x_status(text)[0] == 'posted'
+
+
+def already_posted(first_line: str, since: str | None = None) -> str | None:
+    """Tweet id from x_posted.log of a post whose first line matches, logged on/after
+    `since` (ISO date). Retry dedupe (re-audit R2/R4): a resumed announcement checks this
+    BEFORE posting, so a post that succeeded before a crash is never published twice."""
+    try:
+        with open('x_posted.log', encoding='utf-8') as fh:
+            for line in reversed(fh.read().splitlines()):
+                parts = line.split('\t')
+                if (len(parts) >= 3 and parts[2] == first_line[:80]
+                        and (since is None or parts[0] >= since)):
+                    return parts[1]
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def post_to_x_status(text: str) -> tuple:
+    """Post a single tweet. Returns (status, tweet_id):
+      'posted'          2xx; the id is also logged to x_posted.log
+      'rejected'        X answered with an error status: nothing was published, retry is safe
+      'unknown'         no answer (timeout/connection error): it MAY have been published, so
+                        it must not be retried blindly
+      'not_configured'  no X credentials/client here: nothing was sent
+    """
     if not all([os.environ.get(k) for k in
                 ['X_API_KEY','X_API_SECRET','X_ACCESS_TOKEN','X_ACCESS_SECRET']]):
         print('[x] X API keys not set — skipping post')
-        return False
+        return 'not_configured', None
     try:
         s = _session()
-        resp = s.post(X_TWEET_ENDPOINT, json={'text': text}, timeout=15)
-        if resp.status_code in (200, 201):
-            # LOG THE TWEET ID (added 2026-08-10). Without it a posted call cannot be
-            # found again to correct or delete: our API tier blocks timeline READS, so
-            # the id returned here is the only record. The HUT retraction needed the
-            # link hunted down by hand because this was never captured.
-            try:
-                tid = (resp.json().get('data') or {}).get('id')
-                if tid:
-                    print(f'[x] posted: https://x.com/PredragSaponjac/status/{tid}')
-                    with open('x_posted.log', 'a', encoding='utf-8') as fh:
-                        fh.write(f'{_dt.datetime.utcnow().isoformat()}Z\t{tid}\t'
-                                 f'{text.splitlines()[0][:80]}\n')
-            except Exception as e:
-                print(f'[x] posted OK but id not captured: {e}')
-            return True
-        print(f'[x] {resp.status_code}: {resp.text[:200]}')
-        return False
     except Exception as e:
-        print(f'[x] error: {e}')
-        return False
+        print(f'[x] client unavailable: {e}')
+        return 'not_configured', None
+    try:
+        resp = s.post(X_TWEET_ENDPOINT, json={'text': text}, timeout=15)
+    except Exception as e:
+        print(f'[x] no answer from X ({e}) — the post may or may not exist')
+        return 'unknown', None
+    if resp.status_code in (200, 201):
+        # LOG THE TWEET ID (added 2026-08-10). Without it a posted call cannot be
+        # found again to correct or delete: our API tier blocks timeline READS, so
+        # the id returned here is the only record. The HUT retraction needed the
+        # link hunted down by hand because this was never captured.
+        tid = None
+        try:
+            tid = (resp.json().get('data') or {}).get('id')
+            if tid:
+                print(f'[x] posted: https://x.com/PredragSaponjac/status/{tid}')
+                with open('x_posted.log', 'a', encoding='utf-8') as fh:
+                    fh.write(f'{_dt.datetime.utcnow().isoformat()}Z\t{tid}\t'
+                             f'{text.splitlines()[0][:80]}\n')
+        except Exception as e:
+            print(f'[x] posted OK but id not captured: {e}')
+        return 'posted', tid
+    print(f'[x] {resp.status_code}: {resp.text[:200]}')
+    return 'rejected', None
 
 
 def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None = None) -> str:

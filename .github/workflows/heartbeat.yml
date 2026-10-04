@@ -15,7 +15,7 @@ name: Heartbeat - alert if the scanner goes silent
 #   2. a database snapshot was stored on the release in the last 30h
 #   3. any scan at all in the last 72h (the original check)
 # Runs at 01:30 UTC Tue-Sat = the evening (US Eastern) of each trading day, after the
-# 19:45 PM run AND its 21:00 backup have had time to finish.
+# PM run (15:45 New York time) AND its 21:07 UTC backup have had time to finish.
 # NOTE: the scanner has no holiday guard yet (it scans on market holidays), so holidays
 # still produce a completed PM pipeline. When the holiday guard lands, teach check 1
 # about holidays too, or it will alarm on every market holiday.
@@ -50,18 +50,31 @@ jobs:
           LAST_PM=$(python3 -c "import json;print(json.load(open('last_scan_pm.json')).get('latest_scan_date') or '')" 2>/dev/null || echo "")
           echo "trading day (ET): $DAY  last completed PM pipeline: ${LAST_PM:-never}"
           if [ "$DOW" -le 5 ] && [ "$LAST_PM" != "$DAY" ]; then
-            add "PM pipeline did NOT complete for $DAY (last completed: ${LAST_PM:-never}). No completed PM run = no signal decision. Check the skew_pm runs (19:45 and the 21:00 backup)."
+            add "PM pipeline did NOT complete for $DAY (last completed: ${LAST_PM:-never}). No completed PM run = no signal decision. Check the skew_pm runs (15:45 New York time and the 21:07 UTC backup)."
           fi
 
-          # 2. a database snapshot stored on the release recently
-          NEWEST=$(gh release view db-state --json assets --jq '[.assets[] | select(.state=="uploaded")] | sort_by(.createdAt) | last | .createdAt' 2>/dev/null || echo "")
-          if [ -z "$NEWEST" ] || [ "$NEWEST" = "null" ]; then
+          # 2. a database snapshot stored on the release recently, AND the exact generation
+          #    the PM run recorded in its completion marker is really there (re-audit:
+          #    "any recent asset" could be another run's, not the one the PM run stored)
+          ASSETS=$(gh release view db-state --json assets 2>/dev/null || echo '{"assets":[]}')
+          NEWEST=$(echo "$ASSETS" | jq -r '[.assets[] | select(.state=="uploaded")] | sort_by(.createdAt) | last | .createdAt // empty' 2>/dev/null || echo "")
+          if [ -z "$NEWEST" ]; then
             add "could not read any database snapshot on the db-state release"
           else
             DB_AGE_H=$(( (NOW_TS - $(date -u -d "$NEWEST" +%s)) / 3600 ))
             echo "newest database snapshot: $NEWEST (${DB_AGE_H}h ago)"
             if [ "$DOW" -le 5 ] && [ "$DB_AGE_H" -gt 30 ]; then
               add "newest stored database is ${DB_AGE_H}h old ($NEWEST): today's scans were not persisted"
+            fi
+          fi
+          GEN=$(python3 -c "import json;print(json.load(open('last_scan_pm.json')).get('db_generation') or '')" 2>/dev/null || echo "")
+          if [ "$DOW" -le 5 ] && [ "$LAST_PM" = "$DAY" ]; then
+            if [ -z "$GEN" ]; then
+              add "the PM completion marker names no database generation"
+            elif ! echo "$ASSETS" | jq -e --arg g "$GEN" '[.assets[] | select(.name==$g and .state=="uploaded")] | length > 0' >/dev/null; then
+              add "the database generation the PM run recorded ($GEN) is NOT on the release"
+            else
+              echo "PM-recorded database generation present: $GEN"
             fi
           fi
 

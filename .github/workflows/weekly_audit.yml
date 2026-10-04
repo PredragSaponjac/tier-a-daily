@@ -13,7 +13,7 @@ name: Weekly self-audit - score registered hypotheses, never implement
 
 on:
   schedule:
-    - cron: '30 22 * * 5'     # Friday 22:30 UTC, after the PM scan and its 21:00 backup
+    - cron: '30 22 * * 5'     # Friday 22:30 UTC, after the PM scan and its 21:07 UTC backup
   workflow_dispatch:
 
 # ONE DATABASE WRITER AT A TIME (audit F10, 2026-10-04) — shared with skew_am and
@@ -47,6 +47,7 @@ jobs:
         run: bash db_state.sh pull
 
       - name: Label the path of every Tier A qualifier
+        id: paths
         env:
           SKEW_DB_PATH: ./skew_history.db
         run: python path_labels.py
@@ -66,8 +67,10 @@ jobs:
           git diff --cached --quiet || git commit -m "Weekly self-audit $(date -u +%Y-%m-%d)"
           git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry'; exit 1; }
 
-      # The path-label table lives inside the DB, so the DB must go back to the release.
+      # The path-label table lives inside the DB, so the DB must go back to the release —
+      # even if scoring or the commit failed (re-audit: keep the relabel, report the rest).
       - name: Store database state
+        if: ${{ always() && steps.paths.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash db_state.sh push

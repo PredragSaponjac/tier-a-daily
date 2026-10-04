@@ -250,6 +250,20 @@ def push() -> str | None:
         raise DBStateError(f'upload of {name} could not be verified against the local '
                            f'database; removed it. The previous generation {gen["name"]} '
                            f'is untouched.')
+    # Optimistic concurrency, completed (re-audit F10): the generation check above runs
+    # BEFORE the upload, so two writers could both pass it and both upload. Any OTHER
+    # snapshot newer than the generation we pulled means a concurrent writer: ours is
+    # withdrawn and this run FAILS, so its retry rebuilds on the other writer's data.
+    # Simultaneous uploads may both withdraw (both retry); they can never both stay.
+    rivals = [a['name'] for a in snapshots(assets)
+              if a['name'] != name and (gen['name'] == LEGACY or a['name'] > gen['name'])]
+    if rivals:
+        try:
+            GH('release', 'delete-asset', TAG, name, '-y')
+        except DBStateError as e:
+            print(f'::error::could not withdraw {name} after a concurrent write: {e}')
+        raise DBStateError(f'a concurrent writer stored {rivals[0]} while this run uploaded {name}; '
+                           f'withdrew ours so nothing is silently overwritten. Retry on top of it.')
     _write_json(GEN_FILE, {'name': name, 'sha256': local, 'bytes': info['bytes'],
                            'pushed_utc': _utcnow()})
     print(f'[db-state] stored and verified {name} (sha256 {local[:12]}...)')

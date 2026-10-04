@@ -110,12 +110,17 @@ def update_mae_mfe(ticker: str, entry_date: str, intraday_low: float, intraday_h
             entry = p['entry_price']
             low_pct = (intraday_low / entry - 1) * 100
             high_pct = (intraday_high / entry - 1) * 100
+            # *_ts = when the monitor first OBSERVED the new extreme (re-audit R1: a timestamped
+            # live observation that a final daily bar cannot reconstruct afterwards)
+            now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
             if low_pct < p['MAE_pct']:
                 p['MAE_pct'] = low_pct
                 p['MAE_date'] = on_date
+                p['MAE_ts'] = now
             if high_pct > p['MFE_pct']:
                 p['MFE_pct'] = high_pct
                 p['MFE_date'] = on_date
+                p['MFE_ts'] = now
             updated = p
             break
     if updated is not None:
@@ -134,7 +139,8 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
     failure), (2) only then remove it from the open book, (3) the CSV is a derived export
     and best-effort. A crash between (1) and (2) is recoverable: the re-run finds the
     position still open, the record write is a no-op, and the removal completes.
-    Returns the closed record, or None if no such open position.
+    Returns the CANONICAL closed record from closed_trades.json (an existing one wins over
+    this call's values), or None if no such open position.
     """
     state = _load_open()
     closed = next((p for p in state['positions']
@@ -186,7 +192,11 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
 
     # (1) DURABLE record first. Raises PortfolioStateError on any failure, so the
     #     position stays open and the monitor run fails visibly instead of losing it.
-    _append_closed_trade(closed, row, days_to_exit, exit_note)
+    #     RE-AUDIT R4: if a record already exists (an earlier run recorded the close, then
+    #     failed), THAT record is the close. It is returned unchanged, never recomputed: a
+    #     later bar can resolve differently, and announcing a second result would contradict
+    #     the ledger.
+    canon, created = _append_closed_trade(closed, row, days_to_exit, exit_note)
 
     # (2) Remove from the open book ONLY now that the outcome is durably recorded.
     state['positions'] = [p for p in state['positions']
@@ -194,16 +204,61 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
     _save_open(state)
 
     # (3) track_record.csv is a gitignored research export, never the record of truth.
+    if created:
+        try:
+            file_exists = RECORD_FILE.exists()
+            with RECORD_FILE.open('a', newline='', encoding='utf-8') as f:
+                w = csv.DictWriter(f, fieldnames=RECORD_COLUMNS)
+                if not file_exists:
+                    w.writeheader()
+                w.writerow(row)
+        except Exception as e:
+            print(f'  [record] track_record.csv export skipped ({e}); closed_trades.json holds the record')
+    return canon
+
+
+CLOSED_FILE_NAME = 'closed_trades.json'
+
+
+def _read_closed() -> list:
+    """closed_trades.json as a list. Absent = []; unreadable or not a list RAISES (F07/F08)."""
+    path = ROOT / CLOSED_FILE_NAME
     try:
-        file_exists = RECORD_FILE.exists()
-        with RECORD_FILE.open('a', newline='', encoding='utf-8') as f:
-            w = csv.DictWriter(f, fieldnames=RECORD_COLUMNS)
-            if not file_exists:
-                w.writeheader()
-            w.writerow(row)
+        trades = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
     except Exception as e:
-        print(f'  [record] track_record.csv export skipped ({e}); closed_trades.json holds the record')
-    return row
+        raise PortfolioStateError(f'{CLOSED_FILE_NAME} unreadable ({e})') from e
+    if not isinstance(trades, list):
+        raise PortfolioStateError(f'{CLOSED_FILE_NAME} is not a list')
+    return trades
+
+
+def closed_record(ticker: str, entry_date: str) -> dict | None:
+    """The durable close for this trade, if one was recorded."""
+    return next((t for t in _read_closed()
+                 if t.get('ticker') == ticker and t.get('entry_date') == entry_date), None)
+
+
+# THE CLOSE OUTBOX (re-audit R4, 2026-10-04). A close is recorded with
+# publication = {'telegram': 'pending', 'x': 'pending'}; monitor.publish_pending() announces
+# it FROM THIS RECORD and stores each channel's result. Retryable states are listed here.
+RETRYABLE = {'telegram': ('pending', 'failed'), 'x': ('pending', 'rejected')}
+
+
+def pending_publications() -> list:
+    """Closed records whose announcement has not completed on some channel."""
+    return [t for t in _read_closed() if isinstance(t.get('publication'), dict)
+            and any(t['publication'].get(ch) in st for ch, st in RETRYABLE.items())]
+
+
+def set_publication(ticker: str, entry_date: str, **fields) -> dict:
+    """Atomically record a channel result on one closed record. Returns the record."""
+    trades = _read_closed()
+    for t in trades:
+        if t.get('ticker') == ticker and t.get('entry_date') == entry_date:
+            t.setdefault('publication', {}).update(fields)
+            _atomic_write(ROOT / CLOSED_FILE_NAME, json.dumps(trades, indent=2, ensure_ascii=False))
+            return t
+    raise PortfolioStateError(f'no closed record for {ticker} {entry_date}')
 
 
 def _setup_note(ticker: str, entry_date: str, closed: dict) -> str:
@@ -247,7 +302,7 @@ def _setup_note(ticker: str, entry_date: str, closed: dict) -> str:
         return ''
 
 
-def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: str = '') -> None:
+def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: str = '') -> tuple:
     """ALSO write the durable record to closed_trades.json.
 
     ROOT-CAUSE FIX (2026-08-14, earned twice: ADSK 7/16 and RDDT 8/14).
@@ -258,22 +313,18 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: 
     Net effect: a trade closed correctly, posted correctly, then vanished from the
     record and had to be re-entered by hand. Twice. This closes the loop.
 
-    Idempotent: an already-recorded (ticker, entry_date) is a no-op, so a re-run or a
-    duplicate monitor pass cannot double-count a trade.
+    Idempotent: an already-recorded (ticker, entry_date) is returned UNCHANGED, so a re-run
+    or a duplicate monitor pass cannot double-count a trade or rewrite its result.
+    Returns (record, created).
     """
-    path = ROOT / 'closed_trades.json'
-    try:
-        trades = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
-    except Exception as e:
-        # AUDIT F07: this used to print and RETURN, so close_position "succeeded" with
-        # no durable record. Raise instead — the caller keeps the position open.
-        raise PortfolioStateError(f'closed_trades.json unreadable ({e}); close NOT recorded, '
-                                  f'position left open') from e
-    if not isinstance(trades, list):
-        raise PortfolioStateError('closed_trades.json is not a list; close NOT recorded')
-    if any(t.get('ticker') == row['ticker'] and t.get('entry_date') == row['entry_date']
-           for t in trades):
-        return
+    path = ROOT / CLOSED_FILE_NAME
+    # AUDIT F07: an unreadable file used to print and RETURN, so close_position "succeeded"
+    # with no durable record. _read_closed raises instead — the caller keeps the position open.
+    trades = _read_closed()
+    existing = next((t for t in trades if t.get('ticker') == row['ticker']
+                     and t.get('entry_date') == row['entry_date']), None)
+    if existing is not None:
+        return existing, False
 
     reason = row['exit_reason']
     realized = row['realized_return_pct']
@@ -304,7 +355,7 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: 
     except Exception as e:
         print(f'  [record] day-columns not computed ({e}) — record still written')
 
-    trades.append({
+    rec = {
         'ticker': row['ticker'],
         'entry_date': row['entry_date'],
         'entry_price': row['entry_price'],
@@ -332,10 +383,15 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: 
         'stop_day': days_to_exit if reason == 'STOP' else None,
         'also_reached': also or '—',
         'uw_score': closed.get('filter_score') or 0,
-    })
+        'detected_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        # the close OUTBOX: announced from this record by monitor.publish_pending()
+        'publication': {'telegram': 'pending', 'x': 'pending', 'tg_attempts': 0, 'x_attempts': 0},
+    }
+    trades.append(rec)
     _atomic_write(path, json.dumps(trades, indent=2, ensure_ascii=False))
     print(f"  [record] {row['ticker']} appended to closed_trades.json "
           f"({len(trades)} total)")
+    return rec, True
 
 
 if __name__ == '__main__':

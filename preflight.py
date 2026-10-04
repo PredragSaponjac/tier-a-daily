@@ -203,14 +203,13 @@ def check_formatters():
 def check_wiring():
     print('\n=== 4. wiring (the class of bug where code exists but nothing calls it) ===')
     mon = (REPO / 'monitor.py').read_text(encoding='utf-8')
-    hard('monitor publishes closes to X', '_publish_close' in mon and 'x_post' in mon,
+    hard('monitor publishes closes to X', 'publish_pending' in mon and 'x_post.post_to_x_status' in mon,
          'monitor.py does not call x_post on close')
-    # Since 2026-10-04 TP1 and STOP share ONE resolved path (exits.resolve_bar), so the old
-    # "def + TP1 + STOP call sites" string count no longer applies. What must hold is that
-    # the single call publishes whatever reason the bar resolved to, not a hard-coded one.
-    hard('monitor publishes every close it books (one call, passes the resolved reason)',
-         '_publish_close(pos, tk, entry, exit_price, reason, date_str)' in mon,
-         'monitor does not publish the resolved close reason')
+    # Since 2026-10-04 every close is announced from the close OUTBOX (closed_trades.json),
+    # not from the bar walk: it must run right after a close AND at the start of every run.
+    hard('monitor announces every close it books, from the durable record',
+         'canon = PT.close_position(' in mon and mon.count('publish_pending(') >= 3,
+         'a close is not followed by publish_pending, or a run never resumes the outbox')
 
     mw = (REPO / '.github/workflows/tier_a_monitor.yml').read_text(encoding='utf-8')
     for k in ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_SECRET']:
@@ -406,7 +405,9 @@ def check_self_audit():
         con.execute("""CREATE TABLE tier_a_paths (ticker TEXT, scan_date TEXT, tradeable INTEGER,
             n_legs INTEGER, entry REAL, first_green_day INTEGER, days_to_t1 INTEGER, days_to_stop INTEGER,
             mae_pct REAL, mfe_pct REAL, outcome TEXT, pnl_pct REAL, r_live REAL, r_stop5 REAL, r_stop6 REAL,
-            r_t12 REAL, bars_seen INTEGER, complete INTEGER, labeled_at TEXT, PRIMARY KEY (ticker, scan_date))""")
+            r_t12 REAL, bars_seen INTEGER, complete INTEGER, labeled_at TEXT, label_version INTEGER,
+            PRIMARY KEY (ticker, scan_date))""")
+        import path_labels as _PL
         # ticker_vix is here deliberately: it is a REGISTERED feature that the scorer's old
         # hand-written column list did not load, so S3 could never produce a verdict while
         # still inflating the Bonferroni divisor. This asserts the loader picks up any
@@ -417,10 +418,11 @@ def check_self_audit():
         for i in range(24):
             d = f'2026-08-{(i % 20) + 1:02d}'
             win = i % 3 != 0
-            con.execute('INSERT INTO tier_a_paths VALUES (?,?,1,1,100,?,?,?,-3,8,?,?,?,?,?,?,20,1,?)',
+            con.execute('INSERT INTO tier_a_paths VALUES (?,?,1,1,100,?,?,?,-3,8,?,?,?,?,?,?,20,1,?,?)',
                         (f'T{i}', d, 1 if win else None, 4 if win else None, None if win else 3,
                          'T1' if win else 'STOP', 10 if win else -7, (10 / 7) if win else -1,
-                         2 if win else -1, (10 / 6) if win else -1, (12 / 7) if win else -1, today))
+                         2 if win else -1, (10 / 6) if win else -1, (12 / 7) if win else -1, today,
+                         _PL.LABEL_VERSION))
             con.execute('INSERT INTO candidate_log VALUES (?,?,?,100,-15,85,80,70,1.2,-12,-9,-8,4,?,95)',
                         (f'T{i}', d, 'Tech', 70 if win else 40))
         con.commit()
@@ -489,6 +491,62 @@ def check_self_audit_decisions():
     x = pd.DataFrame({'days_to_t1': [1, None, 5, None], 'days_to_stop': [None, 2, None, 4]})
     hard('risk set at day 2 keeps only positions still open at the end of day 2',
          list(SA._open_at(x, 2).index) == [2, 3], f'kept {list(SA._open_at(x, 2).index)}')
+
+    # RE-AUDIT R8: a path that matured with NEITHER event was alive at the landmark; an
+    # OPEN path is censored (unknown outcome) and stays out.
+    x8 = pd.DataFrame({'days_to_t1': [None, None, 2], 'days_to_stop': [None, None, None],
+                       'outcome': ['EXPIRED', 'OPEN', 'T1'], 'bars_seen': [20, 9, 5]})
+    hard('R8: a matured no-event path alive at day 3 stays in the risk set; OPEN stays out',
+         list(SA._open_at(x8, 3).index) == [0], f'kept {list(SA._open_at(x8, 3).index)}')
+
+    # RE-AUDIT R3, the reviewer's fixture: rho +1 in the first half, -1 in the second.
+    # abs() per half used to call that "agreement" and promote it.
+    rows = []
+    for i in range(40):
+        first = i < 20
+        rows.append({'scan_date': f'2026-11-{i // 5 + 1:02d}', 'hit_t1': 1.0, 'fx': float(i),
+                     'days_to_t1': float(i if first else 60 - i)})
+    hs = {'id': 'R3_probe', 'type': 'speed', 'registered': '2026-10-31', 'feature': 'fx'}
+    r3 = SA.score_one(hs, pd.DataFrame(rows), 10, 0.05 / 28)
+    hard('R3: speed halves pointing in OPPOSITE directions never promote',
+         r3.get('halves_agree') is False and r3['verdict'] != 'READY FOR DECISION',
+         f"halves_agree={r3.get('halves_agree')} verdict={r3['verdict']} ({r3.get('detail')})")
+
+    # RE-AUDIT R9: a cohort that mixes labelling engines, or misses qualifiers, blocks READY
+    keep = (SA.score_one, SA.label_coverage, SA.load_frame)
+    try:
+        SA.load_frame = lambda con: pd.DataFrame({'scan_date': ['2026-11-01'], 'ticker': ['ZZ']})
+        SA.score_one = lambda h, d, n_min, p_bar: {'id': h['id'], 'type': h['type'], 'verdict': 'READY FOR DECISION',
+                                                   'detail': 'synthetic', 'registered': h['registered']}
+        SA.label_coverage = lambda con, today=None: {'ok': False, 'detail': 'labels v4: 9 of 10 current'}
+        reg9 = {'hypotheses': [{'id': 'R9_probe', 'type': 'entry_filter', 'status': 'active',
+                                'registered': '2026-10-01', 'feature': 'f', 'op': '>=', 'threshold': 1}]}
+        out9, _, _ = SA.score_registry(None, reg9)
+        hard('R9: READY is BLOCKED while label coverage is incomplete',
+             out9[0]['verdict'] == 'ACCUMULATING' and 'READY BLOCKED' in out9[0]['detail'], f'{out9[0]}')
+        SA.label_coverage = lambda con, today=None: {'ok': True, 'detail': 'labels v4: 10 of 10 current'}
+        out9, _, _ = SA.score_registry(None, reg9)
+        hard('R9: with complete coverage a READY verdict stands', out9[0]['verdict'] == 'READY FOR DECISION',
+             f'{out9[0]}')
+    finally:
+        SA.score_one, SA.label_coverage, SA.load_frame = keep
+
+    # RE-AUDIT R1 (label v4): research has no time limit, like the live book, and flags
+    # every exit that rests on an assumption.
+    import path_labels as PL
+    n = 25
+    g = pd.DataFrame({'date': [f'd{k:02d}' for k in range(n + 1)], 'Open': [100.0] * (n + 1),
+                      'High': [101.0] * n + [111.0], 'Low': [99.0] * (n + 1), 'Close': [100.0] * (n + 1)})
+    rec = PL.label_one(g, 'd00', 100.0)
+    hard('R1: a target reached on bar 25 is a T1 (the old 20-bar cap called it EXPIRED)',
+         rec['outcome'] == 'T1' and rec['days_to_t1'] == 25 and rec['complete'] == 1, f"{rec['outcome']} {rec['days_to_t1']}")
+    g2 = pd.DataFrame({'date': ['d0', 'd1'], 'Open': [100.0, 100.0], 'High': [100.0, 112.0],
+                       'Low': [100.0, 90.0], 'Close': [100.0, 95.0]})
+    rec2 = PL.label_one(g2, 'd0', 100.0)
+    hard('R1: an ambiguous exit bar is FLAGGED (exit_ambiguous=1), not silently assumed',
+         rec2['exit_ambiguous'] == 1 and rec2['outcome'] == 'STOP', f"{rec2.get('exit_ambiguous')} {rec2['outcome']}")
+    hard('a qualifier with no session after entry is "not yet", not an error',
+         PL.label_one(g2.iloc[:1], 'd0', 100.0) == PL.NOT_YET, 'treated as missing data')
 
 
 def check_state_safety():
@@ -594,12 +652,151 @@ def check_exit_engine():
         hard(f'F20 {name}', tuple(map(float, got)) == want, f'got {got}, want {want}')
     hard('F20: the live monitor uses the SHARED held-period rule',
          MON.held_extremes is exits.held_extremes, 'monitor has its own copy')
+    # RE-AUDIT R1: the two legacy engines had their own rules (target-first on ties, every
+    # stop filled at exactly -7%). Both must now answer like the live monitor. Offline.
+    import backtest as BT
+    import exit_model as EMX
+    import yfinance as _yf
+
+    def _bars(rows):
+        return pd.DataFrame(rows, columns=['Open', 'High', 'Low', 'Close'],
+                            index=pd.date_range('2026-01-05', periods=len(rows)))
+
+    class _FT:
+        def __init__(self, df): self.df = df
+        def history(self, **k): return self.df
+    keep_t, keep_d = BT.yf.Ticker, _yf.download
+    try:
+        for label, rows, want_bt, want_em in (
+                ('ambiguous bar', [[100, 112, 90, 95]], ('STOP', -7.0), 'LOSS'),
+                ('gap open at 80', [[80, 90, 75, 85]], ('STOP', -20.0), 'LOSS')):
+            df = _bars(rows)
+            BT.yf.Ticker = lambda t, df=df: _FT(df)
+            r = BT.simulate_trade('ZZ', '2026-01-02', 100.0, 10.0, -7.0)
+            hard(f'R1: legacy backtest.py agrees with the live rule ({label})',
+                 (r['outcome'], round(r['return_pct'], 6)) == want_bt, f"got {r['outcome']} {r['return_pct']}")
+            _yf.download = lambda *a, df=df, **k: df
+            m = EMX.model_exits('ZZ', '2026-01-02', 100.0)
+            hard(f'R1: legacy exit_model.py agrees with the live rule ({label})',
+                 m['outcome'] == want_em and m['tp1_day'] is None, f"got {m['outcome']} tp1_day={m['tp1_day']}")
+    finally:
+        BT.yf.Ticker, _yf.download = keep_t, keep_d
+
     g = pd.DataFrame({'date': ['d0', 'd1'], 'Open': [100.0, 100.0], 'High': [100.0, 125.0],
                       'Low': [100.0, 99.0], 'Close': [100.0, 120.0]})
     rec = PL.label_one(g, 'd0', 100.0)
     hard('F20: research MFE on a +10% win is +10, not the +25 the stock reached after the exit',
          rec is not None and abs(rec['mfe_pct'] - 10.0) < 1e-9 and abs(rec['mae_pct'] + 1.0) < 1e-9,
          f"got mfe {rec and rec['mfe_pct']}, mae {rec and rec['mae_pct']}")
+
+
+def check_close_outbox():
+    """RE-AUDIT R4 (2026-10-04): every close is recorded first and announced FROM the record.
+    Functional, with fake Telegram/X (nothing is sent). Covers the reviewer's conflicting
+    retry, a crash between recording and announcing, and bounded X retries."""
+    print('\n=== 8h. close outbox: announce from the durable record, resume, no double posts (R4) ===')
+    import os
+    import tempfile
+    import json as _json
+    from pathlib import Path as _P
+    import position_tracker as PT
+    import monitor as MON
+    import x_post as XP
+    keep_pt = (PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE)
+    keep_fx = (MON.send_telegram, XP.post_to_x_status)
+    cwd = os.getcwd()
+    tg, xs = [], []
+    tg_ok, x_res = [True], [('posted', '111')]
+    MON.send_telegram = lambda m: (tg.append(m), tg_ok[0])[1]
+    XP.post_to_x_status = lambda m: (xs.append(m), x_res[0])[1]
+
+    def book(tk, ed='2026-01-02'):
+        st = _json.loads(PT.OPEN_FILE.read_text(encoding='utf-8')) if PT.OPEN_FILE.exists() else {'positions': []}
+        st['positions'].append({'ticker': tk, 'entry_date': ed, 'entry_price': 100.0, 'T1': 110.0, 'T2': 111.0,
+                                'T3': 120.0, 'STOP': 93.0, 'MAE_pct': -2.0, 'MAE_date': None, 'MFE_pct': 9.0,
+                                'MFE_date': None, 'filter_score': 0})
+        PT._save_open(st)
+
+    def pub(tk):
+        return PT.closed_record(tk, '2026-01-02')['publication']
+
+    try:
+        tmp = _P(tempfile.mkdtemp())
+        os.chdir(tmp)
+        PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = tmp, tmp / 'open.json', tmp / 'rec.csv'
+        (tmp / 'closed_trades.json').write_text('[]', encoding='utf-8')
+
+        # (a) normal close: one Telegram, one X, then nothing more on the next run
+        book('ZA'); PT.close_position('ZA', '2026-01-02', 110.0, 'TP1', '2026-01-10')
+        hard('a new close is recorded with BOTH channels pending', pub('ZA').get('telegram') == 'pending'
+             and pub('ZA').get('x') == 'pending', f"{pub('ZA')}")
+        MON.publish_pending(); MON.publish_pending()
+        hard('the outbox announces once per channel, and a second run sends nothing',
+             len(tg) == 1 and len(xs) == 1 and pub('ZA')['telegram'] == 'sent' and pub('ZA')['x'] == 'posted',
+             f'telegram {len(tg)}, x {len(xs)}, {pub("ZA")}')
+
+        # (b) crash after recording, before announcing: the NEXT run completes it
+        tg.clear(); xs.clear()
+        book('ZB'); PT.close_position('ZB', '2026-01-02', 93.0, 'STOP', '2026-01-05')
+        hard('a recorded-but-unannounced close is no longer open (only the outbox remembers it)',
+             all(p['ticker'] != 'ZB' for p in PT.list_open()), 'still open')
+        MON.publish_pending()
+        hard('the next run announces a close a crashed run left unannounced',
+             len(tg) == 1 and 'ZB' in tg[0] and pub('ZB')['x'] == 'posted', f'telegram {tg}')
+
+        # (c) the reviewer's conflicting retry: TP1 recorded, removal failed, a later bar says STOP
+        tg.clear(); xs.clear()
+        book('ZC'); PT.close_position('ZC', '2026-01-02', 110.0, 'TP1', '2026-01-10')
+        book('ZC')                                              # removal "failed": still open
+        res = MON.check_position(PT.list_open()[-1])
+        hard('R4: a retry finishes the RECORDED close (TP1), never a recomputed one',
+             res and res['reason'] == 'TP1' and all(p['ticker'] != 'ZC' for p in PT.list_open())
+             and PT.closed_record('ZC', '2026-01-02')['exit_reason'] == 'TP1'
+             and not any('STOP' in m for m in tg), f'{res}, telegram {tg}')
+
+        # (d) X rejected: draft + one alert, bounded retries, then "post by hand"
+        tg.clear(); xs.clear(); x_res[0] = ('rejected', None)
+        book('ZD'); PT.close_position('ZD', '2026-01-02', 93.0, 'STOP', '2026-01-06')
+        for _ in range(5):
+            MON.publish_pending()
+        alerts = [m for m in tg if 'NOT confirmed on X' in m]
+        hard(f'X rejected: {MON.MAX_X_ATTEMPTS} attempts max, then gave_up; 2 alerts, not one per retry',
+             len(xs) == MON.MAX_X_ATTEMPTS and pub('ZD')['x'] == 'gave_up' and len(alerts) == 2
+             and (tmp / 'x_drafts' / '2026-01-06_ZD_CLOSE.txt').exists(),
+             f"x calls {len(xs)}, status {pub('ZD')['x']}, alerts {len(alerts)}")
+
+        # (e) X did not answer: it MAY be live, so it is never retried automatically
+        tg.clear(); xs.clear(); x_res[0] = ('unknown', None)
+        book('ZE'); PT.close_position('ZE', '2026-01-02', 110.0, 'TP1', '2026-01-07')
+        MON.publish_pending(); MON.publish_pending()
+        hard('an unanswered X post is NOT retried blindly (could duplicate a live post)',
+             len(xs) == 1 and pub('ZE')['x'] == 'unknown', f"x calls {len(xs)}, {pub('ZE')}")
+
+        # (f) dedupe: a post already in x_posted.log is recognised, not posted again
+        tg.clear(); xs.clear(); x_res[0] = ('posted', '222')
+        book('ZF'); PT.close_position('ZF', '2026-01-02', 110.0, 'TP1', '2026-01-08')
+        head = XP.format_close_for_x('ZF', 100.0, 110.0, 'TP1').splitlines()[0]
+        (tmp / 'x_posted.log').write_text(f'2026-01-08T20:00:00Z\t999\t{head[:80]}\n', encoding='utf-8')
+        MON.publish_pending()
+        hard('a close already on X (x_posted.log) is marked posted without posting again',
+             len(xs) == 0 and pub('ZF')['x'] == 'posted' and pub('ZF').get('x_id') == '999', f"{pub('ZF')}")
+
+        # (g) Telegram failure is retried on the next run
+        tg.clear(); xs.clear(); tg_ok[0] = False
+        book('ZG'); PT.close_position('ZG', '2026-01-02', 93.0, 'STOP', '2026-01-09')
+        MON.publish_pending()
+        first = pub('ZG')['telegram']
+        tg_ok[0] = True
+        MON.publish_pending()
+        hard('a failed Telegram close is retried and then marked sent',
+             first == 'failed' and pub('ZG')['telegram'] == 'sent', f"{first} -> {pub('ZG')['telegram']}")
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        hard('close outbox checks', False, f'{type(e).__name__}: {e}')
+    finally:
+        os.chdir(cwd)
+        PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = keep_pt
+        MON.send_telegram, XP.post_to_x_status = keep_fx
 
 
 def check_db_storage():
@@ -620,6 +817,7 @@ def check_db_storage():
             self.root, self.assets = root, {}
             self.fail_upload = self.corrupt_upload = False
             self.corrupt_download = None
+            self.rival = None                # (name, src): another writer uploads mid-push
 
         def put(self, name, src, state='uploaded'):
             dst = self.root / f'asset_{name}'
@@ -644,6 +842,8 @@ def check_db_storage():
                 name = _P(a[3]).name
                 if name in self.assets:
                     raise DS.DBStateError('asset exists (no --clobber)')
+                if self.rival:                       # a concurrent writer lands first
+                    self.put(*self.rival); self.rival = None
                 self.put(name, a[3])
                 if self.corrupt_upload:
                     self.assets[name]['digest'] = 'sha256:' + '0' * 64
@@ -754,6 +954,22 @@ def check_db_storage():
              _json.loads(_P(DS.GEN_FILE).read_text())['name'] == snaps[0]['name'], 'pulled a partial asset')
         rel.assets.pop('skewdb-20261231T235959Z-partial.db')
 
+        # RE-AUDIT F10: both writers pass the pre-upload check and upload at once; the
+        # post-upload check must withdraw ours so the other writer's data is not hidden
+        checkout('r'); DS.pull(); add_rows(DS.DB)
+        rel.rival = ('skewdb-20261005T000099Z-rival.db', seed)
+        try:
+            DS.push(); raised = False
+        except DS.DBStateError:
+            raised = True
+        names = set(rel.assets)
+        hard('F10: a concurrent upload between check and upload is DETECTED; ours is withdrawn',
+             raised and 'skewdb-20261005T000099Z-rival.db' in names
+             and not any(n.endswith('-test.db') and n > 'skewdb-20261005T000099Z' for n in names)
+             and DS.newest(_json.loads(rel('release', 'view'))['assets'])['name'] == 'skewdb-20261005T000099Z-rival.db',
+             f'raised={raised}, assets {sorted(names)}')
+        rel.assets.pop('skewdb-20261005T000099Z-rival.db', None)
+
         # no generation record -> refuse; unchanged -> no upload; corrupt file -> refuse
         checkout('e'); shutil.copyfile(seed, DS.DB)
         try:
@@ -792,24 +1008,118 @@ def check_retry_and_replay():
          '--live ignored')
     hard('the production run (no --scan-date) is not forced dry', not M.effective_dry_run(None, False, False),
          'production would never send')
-    keep = AR.ARCHIVE_DIR
+    import os
+    import position_tracker as PT
+    import x_post as XP
+    keep = (AR.ARCHIVE_DIR, PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE, M.send_telegram, XP.post_to_x_status,
+            PT.add_position, M.sheet_sync.sync_all)
+    cwd = os.getcwd()
+    keep_env = os.environ.get('ENABLE_X_AUTOPOST')
+    tg, xs, tg_ok, x_res = [], [], [True], [('posted', '1')]
     try:
-        AR.ARCHIVE_DIR = _P(tempfile.mkdtemp())
-        hard('no archive -> no prior decision (first attempt delivers)', M.prior_decision('2026-10-05') is None,
-             'blocked a first delivery')
-        AR.archive_daily_run('2026-10-05', [], 'ZZ', 0, '1.1.0', taken_tickers=['ZZ'])
-        hard('an archived decision blocks re-delivery on a retry', M.prior_decision('2026-10-05') is not None,
-             'a retry would publish the same signal twice')
-        AR.archive_daily_run('2026-10-06', [], 'ZZ', 0, '1.1.0',
-                             notes='TELEGRAM DELIVERY FAILED — no position opened.', taken_tickers=[])
-        hard('a recorded DELIVERY FAILURE does not block the retry', M.prior_decision('2026-10-06') is None,
-             'a failed delivery would never be retried')
+        os.environ['ENABLE_X_AUTOPOST'] = '1'                  # as in production
+        tmp = _P(tempfile.mkdtemp())
+        os.chdir(tmp)
+        AR.ARCHIVE_DIR = tmp / 'signals'; AR.ARCHIVE_DIR.mkdir()
+        PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = tmp, tmp / 'open.json', tmp / 'rec.csv'
+        M.send_telegram = lambda m: (tg.append(m), tg_ok[0])[1]
+        XP.post_to_x_status = lambda m: (xs.append(m), x_res[0])[1]
+        M.sheet_sync.sync_all = lambda: None
+        cand = {'ticker': 'ZZ', 'scan_date': '2026-10-05', 'spot_close': 100.0, 'filter': {'score': 0, 'raw': {}}}
+
+        hard('no archive -> state "none" (first attempt decides and delivers)',
+             M.prior_state('2026-10-05')[0] == 'none', 'blocked a first delivery')
+        AR.archive_daily_run('2026-09-01', [], 'ZZ', 0, '1.1.0', taken_tickers=['ZZ'])
+        hard('a pre-outbox archive counts as delivered (no re-send)', M.prior_state('2026-09-01')[0] == 'done', '')
+        AR.archive_daily_run('2026-09-02', [], 'ZZ', 0, '1.1.0', notes='TELEGRAM DELIVERY FAILED', taken_tickers=[])
+        hard('a pre-outbox DELIVERY FAILED archive is retried', M.prior_state('2026-09-02')[0] == 'legacy_retry', '')
+
+        # RE-AUDIT R2, the reviewer's fixture: Telegram ACCEPTED, then the position write fails
+        def boom(*a, **k):
+            raise PT.PortfolioStateError('simulated write failure')
+        PT.add_position = boom
+        try:
+            M.record_and_deliver('2026-10-05', [], 'ZZ', 0, '', 'SIGNAL ZZ', taken=[cand],
+                                 x_text='🎯 Tier A Daily Signal — $ZZ\nbody', featured='ZZ'); exited = False
+        except SystemExit:
+            exited = True
+        st1, rec1 = M.prior_state('2026-10-05')
+        PT.add_position = keep[6]
+        hard('R2: a failure after an ACCEPTED Telegram leaves a resumable record and a red run',
+             exited and st1 == 'resume' and rec1['delivery']['telegram'] == 'sent'
+             and rec1['delivery']['positions'] == 'failed' and len(tg) == 1, f"{exited} {st1} {rec1.get('delivery')}")
+        ok2 = M.run_outbox('2026-10-05')                       # the retry
+        st2, rec2 = M.prior_state('2026-10-05')
+        hard('R2: the retry resumes WITHOUT re-sending Telegram, opens the position, posts X once',
+             ok2 and st2 == 'done' and len(tg) == 1 and len(xs) == 1
+             and [p['ticker'] for p in PT.list_open()] == ['ZZ'], f'telegram {len(tg)}, x {len(xs)}, {rec2["delivery"]}')
+
+        # RE-AUDIT R6: a failed "no signal" Telegram used to return normally and never retry
+        tg.clear(); tg_ok[0] = False
+        try:
+            M.record_and_deliver('2026-10-06', [], None, 0, 'No Tier A candidates today.', 'NO SIGNAL'); exited = False
+        except SystemExit:
+            exited = True
+        st3 = M.prior_state('2026-10-06')[0]
+        tg_ok[0] = True
+        ok3 = M.run_outbox('2026-10-06')
+        hard('R6: a failed no-signal Telegram makes the run fail and is resent by the retry',
+             exited and st3 == 'resume' and ok3 and M.prior_state('2026-10-06')[0] == 'done' and len(tg) == 2,
+             f'exited={exited} state={st3} sends={len(tg)}')
+
+        # R6: a REJECTED X entry is retried (bounded); an UNANSWERED one is not
+        tg.clear(); xs.clear(); x_res[0] = ('rejected', None)
+        c7 = dict(cand, ticker='ZY', scan_date='2026-10-07')
+        try:
+            M.record_and_deliver('2026-10-07', [], 'ZY', 0, '', 'SIGNAL ZY', taken=[c7],
+                                 x_text='🎯 Tier A Daily Signal — $ZY\nbody', featured='ZY')
+        except SystemExit:
+            pass
+        for _ in range(4):
+            M.run_outbox('2026-10-07')
+        d7 = M.prior_state('2026-10-07')[1]['delivery']
+        hard(f'R6: a rejected X entry is retried at most {M.X_MAX_ATTEMPTS} times, then hand-posting is asked',
+             len(xs) == M.X_MAX_ATTEMPTS and d7['x'] == 'gave_up' and len(tg) == 1 + 2, f"x {len(xs)}, {d7}, tg {len(tg)}")
+        xs.clear(); x_res[0] = ('unknown', None)
+        c8 = dict(cand, ticker='ZW', scan_date='2026-10-08')
+        try:
+            M.record_and_deliver('2026-10-08', [], 'ZW', 0, '', 'SIGNAL ZW', taken=[c8],
+                                 x_text='🎯 Tier A Daily Signal — $ZW\nbody', featured='ZW')
+        except SystemExit:
+            pass
+        M.run_outbox('2026-10-08')
+        hard('an UNANSWERED X entry is never re-posted automatically', len(xs) == 1
+             and M.prior_state('2026-10-08')[1]['delivery']['x'] == 'unknown', f'x {len(xs)}')
+        xs.clear(); x_res[0] = ('posted', '5')
+        (tmp / 'x_posted.log').write_text('2026-10-09T20:31:00Z\t777\t🎯 Tier A Daily Signal — $ZV\n', encoding='utf-8')
+        c9 = dict(cand, ticker='ZV', scan_date='2026-10-09')
+        try:
+            M.record_and_deliver('2026-10-09', [], 'ZV', 0, '', 'SIGNAL ZV', taken=[c9],
+                                 x_text='🎯 Tier A Daily Signal — $ZV\nbody', featured='ZV')
+        except SystemExit:
+            pass
+        hard('an entry already in x_posted.log is recognised, not posted twice',
+             len(xs) == 0 and M.prior_state('2026-10-09')[1]['delivery'].get('x_id') == '777', f'x {len(xs)}')
+        hard('every decision also leaves an immutable run record (R7)',
+             len(list((AR.ARCHIVE_DIR / 'runs').glob('2026-10-05_*.json'))) >= 1, 'no signals/runs/ copy')
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        hard('decision outbox checks', False, f'{type(e).__name__}: {e}')
     finally:
-        AR.ARCHIVE_DIR = keep
+        os.chdir(cwd)
+        if keep_env is None:
+            os.environ.pop('ENABLE_X_AUTOPOST', None)
+        else:
+            os.environ['ENABLE_X_AUTOPOST'] = keep_env
+        (AR.ARCHIVE_DIR, PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE, M.send_telegram, XP.post_to_x_status,
+         PT.add_position, M.sheet_sync.sync_all) = keep
     src = inspect.getsource(M.main)
-    i_prior, i_send = src.find('prior_decision(scan_date)'), src.find('send_telegram(')
-    hard('main() checks for a prior decision BEFORE its first send',
-         0 <= i_prior < i_send, f'prior check at {i_prior}, first send at {i_send}')
+    i_prior, i_decide = src.find('prior_state(scan_date)'), src.find('enrich_candidates(')
+    hard('main() resumes or skips an already-decided date BEFORE deciding again',
+         0 <= i_prior < i_decide and src.find("state == 'resume'") < i_decide,
+         f'prior check at {i_prior}, decision at {i_decide}')
+    hard('main() never sends directly; every send goes through the archived outbox',
+         'send_telegram(' not in src and 'post_to_x' not in src, 'a direct send bypasses the outbox')
     hard('main() applies the read-only replay rule', 'effective_dry_run(args.scan_date' in src,
          'the rule exists but main() does not call it')
 
@@ -867,7 +1177,19 @@ def check_workflow_wiring():
     hard('F10: the PM guard reads the LATEST commit, not the trigger-time snapshot',
          'ref: ${{ github.ref_name }}' in pm.split('scan_and_signal:')[0], 'guard checks out the trigger SHA')
     hard('the PM workflow has a guarded BACKUP schedule (auto-retry never fired)',
-         len(_re.findall(r"(?m)^\s+- cron: '", pm)) >= 2, 'only one PM schedule')
+         "cron: '7 21 * * 1-5'" in pm, 'no backup schedule')
+    # NO MANUAL DST SHIFTS: summer + winter twins, and a guard that picks the right one
+    guard = pm.split('scan_and_signal:')[0]
+    hard('PM has summer AND winter crons for 15:45 New York time',
+         "cron: '45 19 * * 1-5'" in pm and "cron: '45 20 * * 1-5'" in pm, 'a season is missing')
+    hard('the PM guard skips the wrong-season twin and never scans before 15:30 New York time',
+         all(k in guard for k in ('github.event.schedule', '-0400', '-0500', '1530', 'America/New_York')),
+         'season gate incomplete')
+    hard('AM has summer AND winter crons plus a season gate',
+         "cron: '30 14 * * 1-5'" in am and "cron: '30 15 * * 1-5'" in am
+         and 'github.event.schedule' in am and '-0500' in am, 'AM season gate incomplete')
+    hard('the monitor covers the full session in both seasons (13:00-21:45 UTC)',
+         "cron: '*/15 13-21 * * 1-5'" in mon, 'monitor window misses part of a session')
     steps = pm.split('- name: ')
     last = steps[-1]
     hard('F11: the PM completion marker is the LAST step and needs every step to succeed',
@@ -881,6 +1203,24 @@ def check_workflow_wiring():
              'a delivery failure would throw away the day\'s data')
     hard('F19: the monitor push no longer swallows failures',
          _re.search(r'git push[^\n]*\|\|\s*true\s*$', mon, _re.M) is None, 'push ends in `|| true`')
+    refresh = next((x for x in steps if x.startswith('Refresh portfolio state')), '')
+    signal = next((x for x in steps if x.startswith('Run Tier A Daily bot')), '')
+    hard('F10: the PM portfolio refresh FAILS CLOSED (no fallback to a stale book)',
+         'exit 1' in refresh and '|| echo' not in refresh, 'refresh failure falls back to the stale checkout')
+    hard('F10: the PM signal step never runs after a failed refresh',
+         "steps.refresh.outcome == 'success'" in signal, 'signal runs regardless of the refresh')
+    am_store = next((x for x in am.split('- name: ') if x.startswith('Store database state')), '')
+    wa_store = next((x for x in wa.split('- name: ') if x.startswith('Store database state')), '')
+    hard('AM stores the scan even when labelling failed',
+         'always()' in am_store and 'steps.scan.outcome' in am_store, 'a label failure discards the AM scan')
+    hard('weekly stores the relabelled DB even when scoring failed',
+         'always()' in wa_store and 'steps.paths.outcome' in wa_store, 'a scoring failure discards the relabel')
+    hb = rd('heartbeat.yml')
+    hard('heartbeat verifies the EXACT database generation the PM run recorded',
+         'db_generation' in hb, 'heartbeat accepts any recent asset')
+    hard('R4: the monitor also runs when a close announcement is pending',
+         '.publication.x == "rejected"' in mon and '"$P" -gt 0' in mon,
+         'a failed close post for the last open position would never be retried')
     names = {f: _re.findall(r'(?m)^name:\s*(.+?)\s*$', rd(f))[0] for f in ('skew_am.yml', 'skew_pm.yml')}
     listed = _re.findall(r'(?m)^\s+- "(.+)"\s*$', ar.split('types:')[0])
     hard('auto-retry lists the scan workflows by their EXACT current names',
@@ -952,12 +1292,12 @@ def main():
     for fn in (check_gates, check_data_quality, check_formatters,
                check_wiring, check_silent_failures, check_self_audit,
                check_self_audit_decisions, check_state_safety, check_exit_engine,
-               check_db_storage, check_retry_and_replay, check_residual_labels,
-               check_workflow_wiring,
+               check_close_outbox, check_db_storage, check_retry_and_replay,
+               check_residual_labels, check_workflow_wiring,
                check_take_all, check_network):
         try:
             fn()
-        except Exception as e:
+        except (Exception, SystemExit) as e:      # a check that exits is a FAILURE, reported
             HARD.append(f'{fn.__name__} crashed: {type(e).__name__}: {e}')
             traceback.print_exc()
 

@@ -69,7 +69,8 @@ def close_trade(ticker, exit_date, exit_price, outcome, reason=''):
     if match is None:
         print(f'[manual] no OPEN {ticker} found — pass entry via --open first')
         return
-    exc = excursions.compute_excursion(ticker, match['entry_date'], match['entry_price'])
+    exc = excursions.compute_excursion(ticker, match['entry_date'], match['entry_price'],
+                                       exit_date=exit_date)      # held period only (R5)
     if exc is None:
         print(f'[manual] WARNING: no intraday for {ticker} (aged out?) — heat/peak blank')
         exc = {'heat_pct': None, 'peak_pct': None, 'peak_day': None, 'first_green_day': None, 'src': 'none'}

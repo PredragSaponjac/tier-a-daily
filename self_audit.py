@@ -51,6 +51,16 @@ def load_frame(con):
     p = pd.read_sql_query('SELECT * FROM tier_a_paths', con)
     if p.empty:
         return p
+    # RE-AUDIT R9 (2026-10-04): score ONE labelling engine at a time. Rows from an older
+    # engine (a relabel cut short, a failed download) are left out here, and
+    # label_coverage() blocks READY until every qualifier carries the current version.
+    import path_labels as PL
+    if 'label_version' in p:
+        p = p[p['label_version'] == PL.LABEL_VERSION]
+    else:
+        p = p.iloc[0:0]
+    if p.empty:
+        return p
     # SELECT * on purpose (fixed 2026-09-26). A hand-written column list silently made
     # S3 (ticker_vix) and S4 (sector_breadth_skew_down) UNSCOREABLE from the day they were
     # registered: they still counted toward the Bonferroni divisor, raising the bar for
@@ -139,8 +149,13 @@ def _open_at(x, day):
     AUDIT F14: a post-entry signal is acted on at its landmark, so only positions still
     open then are in its risk set. Counting trades that had already stopped made
     'never green by day 3' look perfect: 15 of the 18 never-green losers had stopped
-    before day 3 could act on them."""
+    before day 3 could act on them.
+    RE-AUDIT R8: a path that matured with NEITHER event (legacy EXPIRED rows) has no event
+    day and was dropped although it was alive at the landmark; its resolution is the last
+    bar seen. OPEN rows stay out: their outcome is unknown (censored), not a failure."""
     res = x['days_to_t1'].fillna(x['days_to_stop'])
+    if 'outcome' in x and 'bars_seen' in x:
+        res = res.fillna(x['bars_seen'].where(x['outcome'] == 'EXPIRED'))
     return x[res > day]
 
 
@@ -236,7 +251,11 @@ def score_one(h, d, n_min, p_bar):
         # F12: speed now obeys the both-halves rule like every other type. The rho for
         # the chosen feature must point the registered way in BOTH halves of the sample.
         bf = best[0]
-        sgn = (lambda rr: -rr) if want_neg else (lambda rr: abs(rr))
+        # RE-AUDIT R3 (2026-10-04): with no registered direction each half's rho went
+        # through abs(), so rho +1 in one half and -1 in the other "agreed" and could
+        # promote. Both halves must now point the same way as the full-sample rho.
+        full_sign = 1.0 if best[1] >= 0 else -1.0
+        sgn = (lambda rr: -rr) if want_neg else (lambda rr: rr * full_sign)
         def _half_rho(z):
             zz = z[[bf, 'days_to_t1']].dropna()
             return sgn(stats.spearmanr(zz[bf], zz.days_to_t1)[0]) if len(zz) >= 4 else None
@@ -253,10 +272,42 @@ def score_one(h, d, n_min, p_bar):
     return r
 
 
+def label_coverage(con, today=None) -> dict:
+    """RE-AUDIT R9 (2026-10-04): does the path table cover EVERY qualifier with the CURRENT
+    labelling engine? A partial relabel would otherwise let two engines' labels be scored as
+    one cohort while the job reported success. Qualifiers from the latest scan date are not
+    expected yet (no session after entry)."""
+    import path_labels as PL
+    today = today or dt.date.today()
+    if isinstance(today, str):
+        today = dt.date.fromisoformat(today)
+    try:
+        exp = PL.qualifiers(con, today)
+        latest = con.execute('SELECT MAX(scan_date) FROM candidate_log').fetchone()[0]
+        exp = exp[exp.scan_date < latest]
+        have = pd.read_sql_query('SELECT ticker, scan_date, label_version FROM tier_a_paths', con)
+    except Exception as e:
+        return {'ok': False, 'detail': f'coverage check failed: {type(e).__name__}: {e}'}
+    cur = have[have['label_version'] == PL.LABEL_VERSION] if 'label_version' in have else have.iloc[0:0]
+    want, got = set(zip(exp.ticker, exp.scan_date)), set(zip(cur.ticker, cur.scan_date))
+    missing = sorted(want - got)
+    stale = int(len(have) - len(cur))
+    return {'ok': not missing and stale == 0, 'version': PL.LABEL_VERSION,
+            'expected': len(want), 'current': len(want & got), 'stale_rows': stale,
+            'missing': [f'{t} {s}' for t, s in missing[:20]],
+            'detail': (f'labels v{PL.LABEL_VERSION}: {len(want & got)} of {len(want)} qualifiers current'
+                       + (f', {stale} older-version row(s)' if stale else '')
+                       + (f', missing {len(missing)}' if missing else ''))}
+
+
+_COVERAGE = None
+
+
 def score_registry(con, registry, today=None, archives_dir=None):
-    global ARCHIVES, _FRAME
+    global ARCHIVES, _FRAME, _COVERAGE
     if archives_dir:
         ARCHIVES = archives_dir
+    _COVERAGE = label_coverage(con, today)
     d = load_frame(con)
     _FRAME = d                                   # reused by loser_ledger (no second skew_slope pass)
     active = [h for h in registry['hypotheses'] if h.get('status') == 'active']
@@ -275,6 +326,12 @@ def score_registry(con, registry, today=None, archives_dir=None):
         except Exception as e:
             out.append({'id': h['id'], 'type': h['type'], 'registered': h['registered'],
                         'p_bar': p_bar, 'verdict': 'ERROR', 'detail': f'{type(e).__name__}: {e}'})
+    # R9: no promotion off a cohort that mixes labelling engines or misses qualifiers
+    if not _COVERAGE.get('ok'):
+        for r in out:
+            if r.get('verdict') == 'READY FOR DECISION':
+                r['verdict'] = 'ACCUMULATING'
+                r['detail'] = f"{r.get('detail', '')} — READY BLOCKED: {_COVERAGE.get('detail')}"
     return out, p_bar, n_tests
 
 
@@ -342,7 +399,11 @@ def digest(results, p_bar, n_tests, con, registry=None):
     lines = [f'🔬 TIER A SELF-AUDIT — {dt.date.today()}',
              f'{tot[0]} qualified names path-labeled ({tot[1]} resolved). '
              f'{n_tests} ideas under test → corrected bar p<{p_bar:.4f}.',
-             'Each idea scores ONLY on signals after it was registered. Nothing is auto-applied.', '']
+             'Each idea scores ONLY on signals after it was registered. Nothing is auto-applied.']
+    if _COVERAGE is not None:
+        lines.append(('✅ ' if _COVERAGE.get('ok') else '⚠️ READY blocked — ') + str(_COVERAGE.get('detail'))
+                     + (f" (missing: {', '.join(_COVERAGE['missing'][:5])})" if _COVERAGE.get('missing') else ''))
+    lines.append('')
     order = ['READY FOR DECISION', 'ACCUMULATING', 'INSUFFICIENT', 'NULL', 'ERROR']
     icon = {'READY FOR DECISION': '🟢', 'ACCUMULATING': '🟡', 'INSUFFICIENT': '⚪', 'NULL': '🔴', 'ERROR': '⚠️'}
     for v in order:
@@ -382,6 +443,7 @@ def main():
     print(text)
     if a.json:
         json.dump({'date': dt.date.today().isoformat(), 'p_bar': p_bar, 'n_tests': n_tests,
+                   'label_coverage': _COVERAGE,
                    'results': results}, open(os.path.join(HERE, 'audit_latest.json'), 'w',
                                              encoding='utf-8'), indent=2, default=str)
         print('\n[audit] wrote audit_latest.json')
