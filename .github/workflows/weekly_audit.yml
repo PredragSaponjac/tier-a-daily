@@ -13,16 +13,25 @@ name: Weekly self-audit - score registered hypotheses, never implement
 
 on:
   schedule:
-    - cron: '30 22 * * 5'     # Friday 22:30 UTC, after the PM scan and the heartbeat
+    - cron: '30 22 * * 5'     # Friday 22:30 UTC, after the PM scan and its 21:00 backup
   workflow_dispatch:
+
+# ONE DATABASE WRITER AT A TIME (audit F10, 2026-10-04) — shared with skew_am and
+# skew_pm; see skew_pm.yml. This run writes the tier_a_paths table into the database.
+concurrency:
+  group: tier-a-db-writer
+  cancel-in-progress: false
 
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-python@v5
         with:

@@ -4,18 +4,26 @@ name: Auto-retry failed scans
 # 2026-07-27 (the first legitimate signal day after the outage): GitHub's hosted runner
 # died mid-PM-scan ("The hosted runner lost communication with the server") 1h20m in.
 # Nothing in our code failed — but the day's PM snapshot + signal run needed a HUMAN to
-# notice the red X and re-dispatch. This workflow does that automatically.
+# notice the red X and re-dispatch. This workflow was meant to do that automatically.
+#
+# IT NEVER FIRED (found 2026-10-04): zero runs from 7/27 to 10/04, not even skipped ones,
+# so the trigger itself never matched. When both scans failed on 9/28, nothing retried.
+# Suspected cause: both workflow names contained "+", which GitHub may treat as a pattern
+# character in this filter. The names were changed to avoid "+" on 2026-10-04. If this
+# workflow now records a (skipped) run after each AM/PM run, that was the cause.
+# It is NO LONGER the safety net: skew_pm.yml has its own guarded 21:00 UTC backup run.
+# This stays as a faster second chance (immediately after a failure, AM included).
 #
 # LOOP SAFETY: retries only when the FAILED run was event == 'schedule'. The retry itself
 # is a workflow_dispatch, so if the retry also fails it does NOT chain — exactly one
-# automatic retry per scheduled failure. The PM 'guard' job independently prevents any
-# duplicate scan/signal if the first attempt got far enough to commit its snapshot.
+# automatic retry per scheduled failure. The PM guard skips the retry if the first attempt
+# completed, and the shared writer queue (concurrency group) makes it wait its turn.
 
 on:
   workflow_run:
     workflows:
-      - "Skew AM - auto scan + label"
-      - "Skew PM - auto scan + label + scanner + signal"
+      - "Skew AM - auto scan and label"
+      - "Skew PM - auto scan, label, scanner, signal"
     types: [completed]
 
 permissions:
@@ -46,5 +54,5 @@ jobs:
           if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
             curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -d chat_id="${TELEGRAM_CHAT_ID}" \
-              --data-urlencode text="⚠️ ${{ github.event.workflow_run.name }}: scheduled run failed (likely GitHub runner death) — auto-retry dispatched. If this repeats today, check Actions." >/dev/null || true
+              --data-urlencode text="⚠️ ${{ github.event.workflow_run.name }}: scheduled run failed — auto-retry dispatched. If this repeats today, check Actions." >/dev/null || true
           fi

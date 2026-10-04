@@ -9,11 +9,13 @@ Daily run (after Skew Tracker PM scan + v3 AR scanner produces Tier A candidates
 
 CLI:
   python main.py                        # latest scan, send to Telegram
-  python main.py --scan-date YYYY-MM-DD # backtest a specific date
+  python main.py --scan-date YYYY-MM-DD # REPLAY a past date, READ-ONLY (implies --dry-run)
+  python main.py --scan-date D --live   # replay that really sends/tracks (not point-in-time!)
   python main.py --dry-run              # don't send, just print
   python main.py --no-dp                # skip dark pool pulls (faster)
   python main.py --min-score 3          # override parameters.json min_filter_score
   python main.py --require-today        # exit silently if no scan for today (production cron)
+  python main.py --resend               # deliver even if this scan_date was already decided
 """
 import argparse
 import os
@@ -53,6 +55,26 @@ def select_taken(tradeable, top, open_tickers, sel, rank_key):
     return ranked[:room], [c['ticker'] for c in ranked[room:]]
 
 
+def effective_dry_run(scan_date, live: bool, dry_run: bool) -> bool:
+    """AUDIT F16 (2026-10-04). Pure, so preflight can test it. --scan-date was documented as
+    "backtest" but only changed the date: it still sent Telegram/X, opened positions and
+    overwrote that day's archive, and its vetoes queried TODAY's earnings calendar, so it
+    was neither safe nor point-in-time. A replay is read-only unless --live is explicit."""
+    return bool(dry_run or (scan_date and not live))
+
+
+def prior_decision(scan_date: str):
+    """AUDIT F11 (2026-10-04). Pure apart from reading the archive, so preflight can test it.
+    A failed PM run is now retried (21:00 backup, auto-retry). If the first attempt delivered
+    and archived its decision but a LATER step failed (data check, DB upload), the retry must
+    not publish the same signal twice. The archive is committed right after delivery, so a
+    retry's fresh checkout sees it. A recorded delivery FAILURE is not a decision: retried."""
+    prior = archive.load_archive(scan_date)
+    if prior is not None and 'DELIVERY FAILED' not in (prior.get('notes') or ''):
+        return prior
+    return None
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--scan-date', default=None, help='YYYY-MM-DD (default: latest)')
@@ -64,7 +86,17 @@ def main():
                    help='exit if MAX(scan_date) != today (use in production cron)')
     p.add_argument('--vol-days', type=int, default=None,
                    help='override options-volume pull size (for backtesting old dates)')
+    p.add_argument('--live', action='store_true',
+                   help='with --scan-date: really send and track. A replay uses TODAY\'s earnings '
+                        'calendar and option chains, not what was known on that date')
+    p.add_argument('--resend', action='store_true',
+                   help='deliver even if this scan_date was already decided (normally refused)')
     args = p.parse_args()
+    if effective_dry_run(args.scan_date, args.live, args.dry_run) and not args.dry_run:
+        print(f'--scan-date {args.scan_date}: REPLAY is READ-ONLY (implies --dry-run). Vetoes use '
+              f'today\'s earnings calendar and option chains, so it is not point-in-time. '
+              f'Pass --live to really send/track.')
+        args.dry_run = True
     min_score = args.min_score if args.min_score is not None else P.min_filter_score()
 
     load_dotenv()
@@ -82,6 +114,14 @@ def main():
         today_str = _dt.date.today().isoformat()
         if scan_date != today_str:
             print(f"--require-today: latest scan {scan_date} != today {today_str}. Exit (probably holiday/weekend).")
+            return
+
+    # Retry safety (audit F11): never deliver a decision already archived for this date.
+    if not args.dry_run and not args.resend:
+        prior = prior_decision(scan_date)
+        if prior is not None:
+            print(f"Already decided for {scan_date} (archived {prior.get('run_at')}, tracked "
+                  f"{prior.get('taken_tickers')}): NOT delivering again. --resend overrides.")
             return
 
     if len(candidates) == 0:

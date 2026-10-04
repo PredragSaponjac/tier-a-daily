@@ -5,11 +5,24 @@ name: Heartbeat - alert if the scanner goes silent
 # workflow_dispatch as the only trigger. Its PAT expired ~2026-06-28 and the scanner went
 # DEAD for 17 trading days (6/27-7/17) — zero scans, zero signals — and nobody noticed for
 # three weeks. The PAT expiring was not the real failure; the SILENCE was. This job makes
-# silence loud: if no skew snapshot has been committed recently, it pings Telegram.
+# silence loud.
+#
+# 2026-10-04 (external audit F19): the only check was "any skew snapshot commit in 72h",
+# and the AM scan writes one. A PM pipeline (the one that SENDS SIGNALS) could fail every
+# day while the AM kept the heartbeat green. It now checks three separate things:
+#   1. the PM pipeline COMPLETED for the trading day just ended (last_scan_pm.json is
+#      written only after signal, records and database are all stored)
+#   2. a database snapshot was stored on the release in the last 30h
+#   3. any scan at all in the last 72h (the original check)
+# Runs at 01:30 UTC Tue-Sat = the evening (US Eastern) of each trading day, after the
+# 19:45 PM run AND its 21:00 backup have had time to finish.
+# NOTE: the scanner has no holiday guard yet (it scans on market holidays), so holidays
+# still produce a completed PM pipeline. When the holiday guard lands, teach check 1
+# about holidays too, or it will alarm on every market holiday.
 
 on:
   schedule:
-    - cron: '0 22 * * 1-5'   # 22:00 UTC weekdays, after both scans should have run
+    - cron: '30 1 * * 2-6'
   workflow_dispatch:
 
 jobs:
@@ -20,34 +33,52 @@ jobs:
         with:
           fetch-depth: 200
 
-      - name: Check scanner freshness + alert if stale
+      - name: Check pipeline freshness + alert if stale
         env:
+          GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          PROBLEMS=""
+          add() { PROBLEMS="${PROBLEMS}• $1"$'\n'; echo "PROBLEM: $1"; }
+          NOW_TS=$(date -u +%s)
 
-          LAST=$(git log -1 --format=%cI --grep="Skew tracker snapshot" || true)
-          if [ -z "$LAST" ]; then
-            MSG="🚨 TIER A HEARTBEAT: no 'Skew tracker snapshot' commit found at all. Scanner may never have run."
-            STALE=1
+          # 1. PM pipeline completed for the US trading day that just ended
+          DAY=$(TZ=America/New_York date +%Y-%m-%d)
+          DOW=$(TZ=America/New_York date +%u)           # 1=Mon .. 7=Sun
+          LAST_PM=$(python3 -c "import json;print(json.load(open('last_scan_pm.json')).get('latest_scan_date') or '')" 2>/dev/null || echo "")
+          echo "trading day (ET): $DAY  last completed PM pipeline: ${LAST_PM:-never}"
+          if [ "$DOW" -le 5 ] && [ "$LAST_PM" != "$DAY" ]; then
+            add "PM pipeline did NOT complete for $DAY (last completed: ${LAST_PM:-never}). No completed PM run = no signal decision. Check the skew_pm runs (19:45 and the 21:00 backup)."
+          fi
+
+          # 2. a database snapshot stored on the release recently
+          NEWEST=$(gh release view db-state --json assets --jq '[.assets[] | select(.state=="uploaded")] | sort_by(.createdAt) | last | .createdAt' 2>/dev/null || echo "")
+          if [ -z "$NEWEST" ] || [ "$NEWEST" = "null" ]; then
+            add "could not read any database snapshot on the db-state release"
           else
-            LAST_TS=$(date -u -d "$LAST" +%s)
-            NOW_TS=$(date -u +%s)
-            AGE_H=$(( (NOW_TS - LAST_TS) / 3600 ))
-            echo "Last skew snapshot: $LAST (${AGE_H}h ago)"
-            # 72h covers a normal weekend (Fri PM -> Mon PM). Anything beyond = dead.
-            if [ "$AGE_H" -gt 72 ]; then
-              MSG="🚨 TIER A HEARTBEAT: scanner appears DEAD. Last skew snapshot was ${AGE_H}h ago ($LAST). No scans = no signals. Check the skew_am/skew_pm workflow runs and the cron-job.org trigger/PAT."
-              STALE=1
-            else
-              echo "Scanner healthy (${AGE_H}h since last snapshot)."
-              STALE=0
+            DB_AGE_H=$(( (NOW_TS - $(date -u -d "$NEWEST" +%s)) / 3600 ))
+            echo "newest database snapshot: $NEWEST (${DB_AGE_H}h ago)"
+            if [ "$DOW" -le 5 ] && [ "$DB_AGE_H" -gt 30 ]; then
+              add "newest stored database is ${DB_AGE_H}h old ($NEWEST): today's scans were not persisted"
             fi
           fi
 
-          if [ "${STALE}" = "1" ]; then
-            echo "$MSG"
+          # 3. any scan at all in the last 72h (covers a normal weekend: Fri PM -> Mon PM)
+          LAST=$(git log -1 --format=%cI --grep="Skew tracker snapshot" || true)
+          if [ -z "$LAST" ]; then
+            add "no 'Skew tracker snapshot' commit found at all. Scanner may never have run."
+          else
+            AGE_H=$(( (NOW_TS - $(date -u -d "$LAST" +%s)) / 3600 ))
+            echo "last skew snapshot commit: $LAST (${AGE_H}h ago)"
+            if [ "$AGE_H" -gt 72 ]; then
+              add "scanner appears DEAD: last skew snapshot was ${AGE_H}h ago ($LAST). No scans = no signals."
+            fi
+          fi
+
+          if [ -n "$PROBLEMS" ]; then
+            MSG="🚨 TIER A HEARTBEAT ($DAY):"$'\n'"${PROBLEMS}Check the skew_am/skew_pm workflow runs in Actions."
             if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
               curl -sS -X POST \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -58,3 +89,4 @@ jobs:
             fi
             exit 1   # also surface it as a red X in the Actions tab
           fi
+          echo "Pipeline healthy."

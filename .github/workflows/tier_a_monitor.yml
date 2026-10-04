@@ -13,6 +13,7 @@ on:
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # runs every 15 min; a hung run must not overlap the next
     permissions:
       contents: write   # to commit tracker state changes
     steps:
@@ -31,7 +32,16 @@ jobs:
       - name: Check if any open positions (skip if none)
         id: check
         run: |
-          if [ -f open_positions.json ] && [ "$(jq '.positions | length' open_positions.json 2>/dev/null || echo 0)" -gt 0 ]; then
+          # AUDIT F08 (2026-10-04): `jq ... 2>/dev/null || echo 0` read a CORRUPT book as
+          # "no positions" and the run went green while nothing was monitored. Absent file
+          # = empty book; present but unreadable = a loud failure.
+          if [ ! -f open_positions.json ]; then
+            N=0
+          elif ! N=$(jq '.positions | length' open_positions.json); then
+            echo "::error::open_positions.json exists but is unreadable — positions are NOT being monitored"
+            exit 1
+          fi
+          if [ "$N" -gt 0 ]; then
             echo "has_positions=true" >> $GITHUB_OUTPUT
           else
             echo "has_positions=false" >> $GITHUB_OUTPUT
@@ -66,4 +76,7 @@ jobs:
           git add x_drafts/ 2>/dev/null || true
           git add x_posted.log 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Monitor run $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push || (git pull --rebase --autostash && git push) || true
+          # AUDIT F19 (2026-10-04): this ended in `|| true`, so a close could be published
+          # to Telegram/X while its record never reached git — and the run still showed
+          # green. The next run would then see the position as open again.
+          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - a close or MAE/MFE update was NOT persisted'; exit 1; }

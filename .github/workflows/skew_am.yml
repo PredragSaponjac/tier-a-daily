@@ -1,8 +1,8 @@
-name: Skew AM - auto scan + label
+name: Skew AM - auto scan and label
 
 # Trigger:
 #  - 14:30 UTC = 9:30 AM CDT (Mar-Nov), Mon-Fri
-#    DST: Nov 2, 2026 — shift to 15:30 UTC (9:30 AM CST)
+#    DST: Nov 1, 2026 — shift to 15:30 UTC (9:30 AM CST)
 #  - Manual via Actions tab
 on:
   # Native `schedule:` was REMOVED 2026-06-15 (it fired ~1hr late and double-ran with
@@ -20,14 +20,23 @@ on:
         type: boolean
         default: false
 
+# ONE DATABASE WRITER AT A TIME (audit F10, 2026-10-04) — shared with skew_pm and
+# weekly_audit; see skew_pm.yml for the full reasoning.
+concurrency:
+  group: tier-a-db-writer
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     permissions:
       contents: write
     steps:
       - name: Checkout tier-a-daily
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -40,7 +49,7 @@ jobs:
 
       # skew_history.db is a RELEASE ASSET, not a git file — it crossed GitHub's
       # 100MB limit on 2026-08-25 and every push was silently rejected for 3 days.
-      # HARD-FAILS if the DB is missing/truncated: never scan on an empty database.
+      # HARD-FAILS if the DB is missing/truncated/corrupt: never scan on a bad database.
       - name: Fetch database state
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,35 +57,39 @@ jobs:
 
       - name: Run skew_tracker.py (AM scan)
         run: |
-          python skew_tracker.py > skew_manual_am.log 2>&1
-          echo "Scan complete. Tail of log:"
-          tail -10 skew_manual_am.log
-
-      - name: Commit AM snapshot
-        if: ${{ github.event.inputs.dry_run != 'true' }}
-        run: |
-          DATE=$(date -u +%Y-%m-%d)
-          git config user.name "tier-a-daily-bot"
-          git config user.email "bot@tieradaily.local"
-          python scan_marker.py AM
-          git add last_scan_am.json 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE AM (auto)"
+          # On failure print the log's tail HERE (on 9/28 the reason was lost with the runner).
+          if python skew_tracker.py > skew_manual_am.log 2>&1; then
+            echo "Scan complete. Tail of log:"
+            tail -10 skew_manual_am.log
+          else
+            rc=$?
+            echo "::error::skew_tracker.py exited with code $rc. Last 60 lines of its log:"
+            tail -60 skew_manual_am.log
+            exit $rc
+          fi
 
       - name: Run label_candidates.py
         run: |
           python label_candidates.py
           echo "Labeling complete"
 
-      - name: Commit AM labels
-        if: ${{ github.event.inputs.dry_run != 'true' }}
-        run: |
-          DATE=$(date -u +%Y-%m-%d)
-          git diff --cached --quiet || git commit -m "Label candidates forward returns $DATE AM (auto)"
-          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - data NOT persisted'; exit 1; }
-
-      # Persist the DB back to the release — the ONLY durable copy now.
+      # Persist the DB back to the release — the ONLY durable copy. A new, digest-verified
+      # snapshot; earlier generations are kept (audit F09).
       - name: Store database state
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash db_state.sh push
+
+      # The marker LAST (2026-10-04): it now means "the AM scan is stored", not merely
+      # "the AM scan ran". The heartbeat reads these markers.
+      - name: Commit AM snapshot marker
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          git config user.name "tier-a-daily-bot"
+          git config user.email "bot@tieradaily.local"
+          python scan_marker.py AM
+          git add last_scan_am.json
+          git diff --cached --quiet || git commit -m "Skew tracker snapshot $DATE AM (auto)"
+          git push || (git pull --rebase --autostash && git push) || { echo '::error::git push FAILED after retry - data NOT persisted'; exit 1; }

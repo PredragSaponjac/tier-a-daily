@@ -582,6 +582,272 @@ def check_exit_engine():
          out == 'STOP' and abs(pnl + 20.0) < 1e-9, f'research said {out} {pnl:+.2f}%')
 
 
+def check_db_storage():
+    """AUDIT F09/F10 (2026-10-04): db_state.py against a FAKE release, fully offline.
+    F09: `gh release upload --clobber` deleted the only copy before uploading, so a failed
+    upload lost the database. F10: a later whole-file push could erase another run's work."""
+    print('\n=== 8d. database storage: versioned snapshots + generation check (audit F09/F10) ===')
+    import hashlib
+    import shutil
+    import sqlite3 as _sq
+    import tempfile
+    import json as _json
+    from pathlib import Path as _P
+    import db_state as DS
+
+    class FakeRelease:
+        def __init__(self, root):
+            self.root, self.assets = root, {}
+            self.fail_upload = self.corrupt_upload = False
+            self.corrupt_download = None
+
+        def put(self, name, src, state='uploaded'):
+            dst = self.root / f'asset_{name}'
+            shutil.copyfile(src, dst)
+            dig = hashlib.sha256(dst.read_bytes()).hexdigest()
+            self.assets[name] = {'name': name, 'path': dst, 'size': dst.stat().st_size,
+                                 'digest': f'sha256:{dig}', 'state': state}
+
+        def __call__(self, *a):
+            if a[:2] == ('release', 'view'):
+                return _json.dumps({'assets': [{k: v for k, v in x.items() if k != 'path'}
+                                               for x in self.assets.values()]})
+            if a[:2] == ('release', 'download'):
+                name, dest = a[a.index('-p') + 1], a[a.index('-O') + 1]
+                # corrupt_download = a READABLE but different database, so only the digest
+                # can catch it (a truncated file would also fail SQLite's own check)
+                shutil.copyfile(self.corrupt_download or self.assets[name]['path'], dest)
+                return ''
+            if a[:2] == ('release', 'upload'):
+                if self.fail_upload:
+                    raise DS.DBStateError('simulated network failure mid-upload')
+                name = _P(a[3]).name
+                if name in self.assets:
+                    raise DS.DBStateError('asset exists (no --clobber)')
+                self.put(name, a[3])
+                if self.corrupt_upload:
+                    self.assets[name]['digest'] = 'sha256:' + '0' * 64
+                return ''
+            if a[:2] == ('release', 'delete-asset'):
+                self.assets.pop(a[3], None)
+                return ''
+            raise AssertionError(f'unexpected gh call {a}')
+
+    def make_db(path, extra=0):
+        c = _sq.connect(path)
+        c.execute('CREATE TABLE candidate_log (scan_date TEXT, ticker TEXT)')
+        c.execute('CREATE TABLE skew_daily (date TEXT, ticker TEXT)')
+        rows = [('2026-01-01', f'T{i}') for i in range(1000 + extra)]
+        c.executemany('INSERT INTO candidate_log VALUES (?,?)', rows)
+        c.executemany('INSERT INTO skew_daily VALUES (?,?)', rows)
+        c.commit(); c.close()
+
+    def add_rows(path, n=5):
+        c = _sq.connect(path)
+        c.executemany('INSERT INTO candidate_log VALUES (?,?)', [('2026-02-02', f'N{i}') for i in range(n)])
+        c.commit(); c.close()
+
+    keep = (DS.GH, DS.DB, DS.GEN_FILE, DS.MIN_BYTES, DS.KEEP, DS._snapshot_name)
+    counter = iter(range(10, 99))
+    try:
+        tmp = _P(tempfile.mkdtemp())
+        rel = FakeRelease(tmp)
+        DS.GH, DS.MIN_BYTES, DS.KEEP = rel, 0, 3
+        DS._snapshot_name = lambda: f'skewdb-20261005T0000{next(counter):02d}Z-test.db'
+        seed = tmp / 'seed.db'
+        make_db(seed)
+        rel.put('skew_history.db', seed)                      # the legacy single asset
+
+        def checkout(name):                                   # one workflow run's working copy
+            d = tmp / name
+            d.mkdir(exist_ok=True)
+            DS.DB, DS.GEN_FILE = str(d / 'skew_history.db'), str(d / '.gen.json')
+
+        checkout('a'); DS.pull()
+        hard('pull falls back to the legacy asset before any versioned snapshot exists',
+             _json.loads(_P(DS.GEN_FILE).read_text())['name'] == 'skew_history.db', 'wrong source')
+        add_rows(DS.DB); s1 = DS.push()
+        hard('push uploads a NEW versioned snapshot and keeps the previous copy',
+             s1 in rel.assets and 'skew_history.db' in rel.assets, f'assets {sorted(rel.assets)}')
+
+        checkout('b'); DS.pull()
+        hard('pull picks the newest versioned snapshot over the legacy asset',
+             _json.loads(_P(DS.GEN_FILE).read_text())['name'] == s1, 'pulled the wrong generation')
+
+        # F09: an upload that dies mid-transfer must leave the stored generation intact
+        add_rows(DS.DB); rel.fail_upload = True
+        try:
+            DS.push(); raised = False
+        except DS.DBStateError:
+            raised = True
+        rel.fail_upload = False
+        hard('F09: a FAILED upload leaves the previous generation intact (nothing deleted first)',
+             raised and DS.newest(_json.loads(rel('release', 'view'))['assets'])['name'] == s1,
+             f'raised={raised}, assets {sorted(rel.assets)}')
+
+        # F10: two writers pulled the same generation; the second push must be REFUSED
+        s2 = DS.push()                                        # checkout b stores its work
+        checkout('a'); add_rows(DS.DB, 7)                     # a still holds generation s1
+        try:
+            DS.push(); refused = False
+        except DS.DBStateError:
+            refused = True
+        hard('F10: a push from a STALE generation is refused (would erase another run)',
+             refused and DS.newest(_json.loads(rel('release', 'view'))['assets'])['name'] == s2,
+             f'refused={refused}, newest={DS.newest(_json.loads(rel("release", "view"))["assets"])["name"]}')
+
+        # transfer corruption on pull: refused, and the local copy is NOT replaced
+        checkout('c'); shutil.copyfile(seed, DS.DB); before = hashlib.sha256(_P(DS.DB).read_bytes()).hexdigest()
+        other = tmp / 'other.db'
+        make_db(other, extra=3)
+        rel.corrupt_download = other
+        try:
+            DS.pull(); raised = False
+        except DS.DBStateError:
+            raised = True
+        rel.corrupt_download = None
+        hard('a download not matching the server digest is refused (even a readable DB); local untouched',
+             raised and hashlib.sha256(_P(DS.DB).read_bytes()).hexdigest() == before, f'raised={raised}')
+
+        # an upload whose server digest disagrees is removed and the push fails
+        checkout('b'); add_rows(DS.DB); rel.corrupt_upload = True
+        try:
+            DS.push(); raised = False
+        except DS.DBStateError:
+            raised = True
+        rel.corrupt_upload = False
+        hard('an upload that fails digest verification is deleted and the push FAILS',
+             raised and DS.newest(_json.loads(rel('release', 'view'))['assets'])['name'] == s2,
+             f'raised={raised}, assets {sorted(rel.assets)}')
+
+        # pruning keeps the newest KEEP snapshots and never touches the legacy asset
+        for _ in range(4):
+            add_rows(DS.DB); DS.push()
+        snaps = DS.snapshots(_json.loads(rel('release', 'view'))['assets'])
+        hard(f'pruning keeps the newest {DS.KEEP} generations and the legacy asset',
+             len(snaps) == DS.KEEP and 'skew_history.db' in rel.assets, f'{[a["name"] for a in snaps]}')
+
+        # a half-uploaded asset is never pulled
+        rel.put('skewdb-20261231T235959Z-partial.db', seed, state='starter')
+        checkout('d'); DS.pull()
+        hard('a half-uploaded asset is ignored by pull',
+             _json.loads(_P(DS.GEN_FILE).read_text())['name'] == snaps[0]['name'], 'pulled a partial asset')
+        rel.assets.pop('skewdb-20261231T235959Z-partial.db')
+
+        # no generation record -> refuse; unchanged -> no upload; corrupt file -> refuse
+        checkout('e'); shutil.copyfile(seed, DS.DB)
+        try:
+            DS.push(); raised = False
+        except DS.DBStateError:
+            raised = True
+        hard('push with no record of the pulled generation is refused', raised, 'pushed blind')
+        checkout('d'); n_before = len(rel.assets)
+        hard('unchanged database -> nothing uploaded', DS.push() is None and len(rel.assets) == n_before,
+             'uploaded an identical copy')
+        _P(DS.DB).write_bytes(b'SQLite format 3\x00' + b'\x00' * 4000)
+        try:
+            DS.check_db(DS.DB); raised = False
+        except DS.DBStateError:
+            raised = True
+        hard('a corrupt database file fails the integrity check', raised, 'accepted a corrupt DB')
+    except Exception as e:
+        hard('database storage checks', False, f'{type(e).__name__}: {e}')
+    finally:
+        DS.GH, DS.DB, DS.GEN_FILE, DS.MIN_BYTES, DS.KEEP, DS._snapshot_name = keep
+
+
+def check_retry_and_replay():
+    """AUDIT F11/F16 (2026-10-04). A failed PM run is now retried, so a retry must never
+    deliver an already-archived decision twice; and a --scan-date replay must be read-only."""
+    print('\n=== 8e. retry safety + read-only replay (audit F11/F16) ===')
+    import inspect
+    import tempfile
+    import json as _json
+    from pathlib import Path as _P
+    import archive as AR
+    import main as M
+    hard('a --scan-date replay is read-only by default', M.effective_dry_run('2026-09-01', False, False),
+         'a replay would send and track')
+    hard('--scan-date with --live really runs', not M.effective_dry_run('2026-09-01', True, False),
+         '--live ignored')
+    hard('the production run (no --scan-date) is not forced dry', not M.effective_dry_run(None, False, False),
+         'production would never send')
+    keep = AR.ARCHIVE_DIR
+    try:
+        AR.ARCHIVE_DIR = _P(tempfile.mkdtemp())
+        hard('no archive -> no prior decision (first attempt delivers)', M.prior_decision('2026-10-05') is None,
+             'blocked a first delivery')
+        AR.archive_daily_run('2026-10-05', [], 'ZZ', 0, '1.1.0', taken_tickers=['ZZ'])
+        hard('an archived decision blocks re-delivery on a retry', M.prior_decision('2026-10-05') is not None,
+             'a retry would publish the same signal twice')
+        AR.archive_daily_run('2026-10-06', [], 'ZZ', 0, '1.1.0',
+                             notes='TELEGRAM DELIVERY FAILED — no position opened.', taken_tickers=[])
+        hard('a recorded DELIVERY FAILURE does not block the retry', M.prior_decision('2026-10-06') is None,
+             'a failed delivery would never be retried')
+    finally:
+        AR.ARCHIVE_DIR = keep
+    src = inspect.getsource(M.main)
+    i_prior, i_send = src.find('prior_decision(scan_date)'), src.find('send_telegram(')
+    hard('main() checks for a prior decision BEFORE its first send',
+         0 <= i_prior < i_send, f'prior check at {i_prior}, first send at {i_send}')
+    hard('main() applies the read-only replay rule', 'effective_dry_run(args.scan_date' in src,
+         'the rule exists but main() does not call it')
+
+
+def check_workflow_wiring():
+    """Workflow facts the audit found broken (F09/F10/F11/F19, 2026-10-04), checked as text so
+    no YAML library is needed. Includes the auto-retry trigger, which matched NOTHING from 7/27
+    to 10/04 (zero runs) — a name mismatch there is silent."""
+    print('\n=== 8f. workflow wiring (audit F09/F10/F11/F19) ===')
+    import re as _re
+    from pathlib import Path as _P
+    wf = _P(__file__).parent / '.github' / 'workflows'
+    rd = lambda n: (wf / n).read_text(encoding='utf-8')
+    pm, am, wa, mon, ar = (rd('skew_pm.yml'), rd('skew_am.yml'), rd('weekly_audit.yml'),
+                           rd('tier_a_monitor.yml'), rd('auto_retry.yml'))
+    import ast
+    root = _P(__file__).parent
+    bad = []
+    for node in ast.walk(ast.parse((root / 'db_state.py').read_text(encoding='utf-8'))):
+        if isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'GH':
+            lits = [a.value for a in node.args if isinstance(a, ast.Constant)]
+            if 'upload' in lits and '--clobber' in lits:
+                bad.append(ast.unparse(node))
+    for t in [(root / 'db_state.sh').read_text(encoding='utf-8')] + [p.read_text(encoding='utf-8')
+                                                                   for p in wf.glob('*.yml')]:
+        bad += [l.strip() for l in t.splitlines()
+                if not l.lstrip().startswith('#') and 'release upload' in l and '--clobber' in l]
+    hard('F09: no `--clobber` upload of the database anywhere (it deletes the only copy first)',
+         not bad, f'{bad}')
+    for n, t in (('skew_am', am), ('skew_pm', pm), ('weekly_audit', wa)):
+        hard(f'F10: {n} is in the shared database-writer queue',
+             _re.search(r'(?m)^concurrency:\s*\n\s+group:\s*tier-a-db-writer', t) is not None,
+             'missing `concurrency: group: tier-a-db-writer`')
+    hard('F10: the PM guard reads the LATEST commit, not the trigger-time snapshot',
+         'ref: ${{ github.ref_name }}' in pm.split('scan_and_signal:')[0], 'guard checks out the trigger SHA')
+    hard('the PM workflow has a guarded BACKUP schedule (auto-retry never fired)',
+         len(_re.findall(r"(?m)^\s+- cron: '", pm)) >= 2, 'only one PM schedule')
+    steps = pm.split('- name: ')
+    last = steps[-1]
+    hard('F11: the PM completion marker is the LAST step and needs every step to succeed',
+         'scan_marker.py PM' in last and 'success()' in last,
+         'marker is not last, or not gated on success()')
+    hard('F11: the marker is not written anywhere before the end',
+         pm.count('scan_marker.py PM') == 1, 'marker written more than once')
+    for s in ('Persist the decision record', 'Store database state'):
+        blk = next((x for x in steps if x.startswith(s)), '')
+        hard(f'F11/F19: "{s}" still runs when the signal step failed', 'always()' in blk,
+             'a delivery failure would throw away the day\'s data')
+    hard('F19: the monitor push no longer swallows failures',
+         _re.search(r'git push[^\n]*\|\|\s*true\s*$', mon, _re.M) is None, 'push ends in `|| true`')
+    names = {f: _re.findall(r'(?m)^name:\s*(.+?)\s*$', rd(f))[0] for f in ('skew_am.yml', 'skew_pm.yml')}
+    listed = _re.findall(r'(?m)^\s+- "(.+)"\s*$', ar.split('types:')[0])
+    hard('auto-retry lists the scan workflows by their EXACT current names',
+         sorted(listed) == sorted(names.values()), f'listed {listed} vs actual {list(names.values())}')
+    hard('scan workflow names avoid "+" (suspected reason auto-retry never matched)',
+         not any('+' in v for v in names.values()), f'{list(names.values())}')
+
+
 def check_take_all():
     """TAKE-ALL selection (parameters 1.1.0, 2026-09-02) — tests main.select_taken, the
     pure function the live path calls. Cap, no-double-up, and the OFF switch must all hold;
@@ -645,6 +911,7 @@ def main():
     for fn in (check_gates, check_data_quality, check_formatters,
                check_wiring, check_silent_failures, check_self_audit,
                check_self_audit_decisions, check_state_safety, check_exit_engine,
+               check_db_storage, check_retry_and_replay, check_workflow_wiring,
                check_take_all, check_network):
         try:
             fn()

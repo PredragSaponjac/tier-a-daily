@@ -10,12 +10,13 @@ Exit 0 = all checks pass. Exit 1 = something needs a look.
 """
 import datetime as dt
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-DB = REPO / 'skew_history.db'
+DB = Path(os.environ.get('SKEW_DB_PATH') or (REPO / 'skew_history.db'))
 
 # expected universe size (666 tickers scanned daily); allow slack for delistings/failures
 MIN_ROWS = 600
@@ -67,14 +68,24 @@ def main():
                 AND put_wall_oi_change IS NOT NULL AND put_wall_oi_change<=0""", (date,))
     washouts = q('SELECT COUNT(*) FROM candidate_log WHERE scan_date=? AND spot_return_pct<=-8', (date,))
 
-    # PM only: the daily archive must exist and be committed
+    # PM only: the daily archive must exist. AUDIT F19 (2026-10-04): a missing archive used
+    # to print "archive=NO" and still PASS, so a run that lost the day's decision record
+    # showed green. Every non-dry main.py path writes one (no candidates, no signal, none
+    # admitted, delivered, delivery failed), so its absence is a real problem.
     arch = REPO / 'signals' / f'{date}.json'
     arch_ok = arch.exists()
     edge_logged = None
-    if arch_ok:
+    if not arch_ok:
+        problems.append(f'no decision archive signals/{date}.json — the signal step did not '
+                        f'record what it decided')
+    else:
         try:
             a = json.loads(arch.read_text())
-            cands = a.get('candidates', [])
+            if a.get('scan_date') != date:
+                problems.append(f'archive scan_date is {a.get("scan_date")!r}, expected {date}')
+            if not isinstance(a.get('taken_tickers'), list) or not isinstance(a.get('candidates'), list):
+                problems.append('archive is missing taken_tickers/candidates lists')
+            cands = a.get('candidates') or []
             edge_logged = sum(1 for c in cands if c.get('edge')) if cands else 0
         except Exception as e:
             problems.append(f'archive unreadable: {e}')

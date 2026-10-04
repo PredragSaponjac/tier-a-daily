@@ -14,3 +14,9 @@ uw_cache/
 track_record.csv
 skew_history.db
 skew_history.db-journal
+# db_state.py: which release generation this checkout pulled, and transfer temp files
+.db_generation.json
+.db_generation.json.tmp
+.db_pull_*
+.db_push_*/
+.db_verify_*
