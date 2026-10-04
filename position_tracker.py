@@ -24,17 +24,42 @@ RECORD_COLUMNS = [
 ]
 
 
+class PortfolioStateError(RuntimeError):
+    """The book could not be read or written safely. Never swallow this."""
+
+
 def _load_open() -> dict:
+    """ABSENT file -> empty book. PRESENT but unreadable/invalid -> RAISE.
+
+    AUDIT F08 (2026-10-04): any read or JSON error used to return an EMPTY book. A
+    corrupted file therefore looked like "no positions": the monitor reported nothing
+    to watch and succeeded, and the next add_position wrote a one-entry book over the
+    corrupt file — silently erasing every open trade. Unreadable is not empty.
+    """
     if not OPEN_FILE.exists():
         return {'positions': []}
     try:
-        return json.loads(OPEN_FILE.read_text())
-    except Exception:
-        return {'positions': []}
+        state = json.loads(OPEN_FILE.read_text(encoding='utf-8'))
+    except Exception as e:
+        raise PortfolioStateError(f'{OPEN_FILE.name} exists but cannot be read ({e}); '
+                                  f'refusing to treat it as an empty book') from e
+    if not isinstance(state, dict) or not isinstance(state.get('positions'), list):
+        raise PortfolioStateError(f'{OPEN_FILE.name} has an invalid schema; refusing to use it')
+    return state
+
+
+def _atomic_write(path: Path, text: str):
+    """Write to a sibling temp file then os.replace(). A reader sees either the old
+    complete file or the new complete file, never a truncated one (AUDIT F08: the old
+    write_text truncated first, opening a window where a crash left a half file)."""
+    import os
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    os.replace(tmp, path)
 
 
 def _save_open(state: dict):
-    OPEN_FILE.write_text(json.dumps(state, indent=2))
+    _atomic_write(OPEN_FILE, json.dumps(state, indent=2))
 
 
 def list_open() -> list[dict]:
@@ -99,19 +124,22 @@ def update_mae_mfe(ticker: str, entry_date: str, intraday_low: float, intraday_h
 
 
 def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason: str, exit_date: str) -> dict | None:
-    """Remove from open + append to track_record.csv. Returns the closed record or None."""
+    """Close a position. ORDER MATTERS — durable record first, removal last.
+
+    AUDIT F07 (2026-10-04): this removed the position from the open book FIRST, then
+    wrote the CSV, then the durable closed_trades record. Any failure or interruption in
+    between left the trade in NEITHER place — gone from open, never recorded as closed.
+    Now: (1) write the durable closed record (idempotent on ticker+entry_date, raises on
+    failure), (2) only then remove it from the open book, (3) the CSV is a derived export
+    and best-effort. A crash between (1) and (2) is recoverable: the re-run finds the
+    position still open, the record write is a no-op, and the removal completes.
+    Returns the closed record, or None if no such open position.
+    """
     state = _load_open()
-    closed = None
-    remaining = []
-    for p in state['positions']:
-        if p['ticker'] == ticker and p['entry_date'] == entry_date and closed is None:
-            closed = p
-        else:
-            remaining.append(p)
+    closed = next((p for p in state['positions']
+                   if p['ticker'] == ticker and p['entry_date'] == entry_date), None)
     if closed is None:
         return None
-    state['positions'] = remaining
-    _save_open(state)
 
     # Compute days-to-event
     e = datetime.fromisoformat(entry_date).date()
@@ -155,14 +183,25 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
         'parameters_version': closed.get('parameters_version'),
     }
 
-    file_exists = RECORD_FILE.exists()
-    with RECORD_FILE.open('a', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=RECORD_COLUMNS)
-        if not file_exists:
-            w.writeheader()
-        w.writerow(row)
-
+    # (1) DURABLE record first. Raises PortfolioStateError on any failure, so the
+    #     position stays open and the monitor run fails visibly instead of losing it.
     _append_closed_trade(closed, row, days_to_exit)
+
+    # (2) Remove from the open book ONLY now that the outcome is durably recorded.
+    state['positions'] = [p for p in state['positions']
+                          if not (p['ticker'] == ticker and p['entry_date'] == entry_date)]
+    _save_open(state)
+
+    # (3) track_record.csv is a gitignored research export, never the record of truth.
+    try:
+        file_exists = RECORD_FILE.exists()
+        with RECORD_FILE.open('a', newline='', encoding='utf-8') as f:
+            w = csv.DictWriter(f, fieldnames=RECORD_COLUMNS)
+            if not file_exists:
+                w.writeheader()
+            w.writerow(row)
+    except Exception as e:
+        print(f'  [record] track_record.csv export skipped ({e}); closed_trades.json holds the record')
     return row
 
 
@@ -225,8 +264,12 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
     try:
         trades = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
     except Exception as e:
-        print(f'  [record] could not read closed_trades.json ({e}) — NOT overwriting')
-        return
+        # AUDIT F07: this used to print and RETURN, so close_position "succeeded" with
+        # no durable record. Raise instead — the caller keeps the position open.
+        raise PortfolioStateError(f'closed_trades.json unreadable ({e}); close NOT recorded, '
+                                  f'position left open') from e
+    if not isinstance(trades, list):
+        raise PortfolioStateError('closed_trades.json is not a list; close NOT recorded')
     if any(t.get('ticker') == row['ticker'] and t.get('entry_date') == row['entry_date']
            for t in trades):
         return
@@ -288,7 +331,7 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
         'also_reached': also or '—',
         'uw_score': closed.get('filter_score') or 0,
     })
-    path.write_text(json.dumps(trades, indent=2, ensure_ascii=False), encoding='utf-8')
+    _atomic_write(path, json.dumps(trades, indent=2, ensure_ascii=False))
     print(f"  [record] {row['ticker']} appended to closed_trades.json "
           f"({len(trades)} total)")
 

@@ -37,14 +37,19 @@ def select_taken(tradeable, top, open_tickers, sel, rank_key):
 
     Returns (taken, skipped_for_cap). With take_all_qualified ON: every gate-passing name
     in rank order, excluding tickers already open, until open + new reaches
-    max_concurrent (floor 1 so today's top always goes). OFF: [top] — the old rule.
+    max_concurrent. OFF: [top] — the old rule. Either way a ticker already open is never
+    taken again, and `taken` may be EMPTY.
     Rank order has no measured skill; it is used only to decide who yields to the cap.
+
+    AUDIT F06 (2026-10-04): room was max(1, cap - open) — "floor 1 so today's top always
+    goes". With 6 already open that admitted a 7th, and on later days an 8th: the cap
+    the user agreed to (6, each sized at 1/6 of the book) did not hold. Now max(0, ...).
     """
     if not sel.get('take_all_qualified'):
-        return [top], []
+        return ([top] if top is not None and top['ticker'] not in open_tickers else []), []
     ranked = [c for c in sorted(tradeable, key=rank_key, reverse=True)
               if c['ticker'] not in open_tickers]
-    room = max(1, int(sel.get('max_concurrent', 6)) - len(open_tickers))
+    room = max(0, int(sel.get('max_concurrent', 6)) - len(open_tickers))
     return ranked[:room], [c['ticker'] for c in ranked[room:]]
 
 
@@ -210,7 +215,29 @@ def main():
         print(f"TAKE-ALL: {len(tradeable)} tradeable, {len(open_tks)} already open, "
               f"cap {sel.get('max_concurrent', 6)} -> tracking {[c['ticker'] for c in taken]}"
               + (f"  (cap skipped {skipped_for_cap})" if skipped_for_cap else ''))
-    msg = format_signal(top, day_pool, taken=taken) + watch_block
+
+    # AUDIT F06/F18: names qualified but NONE admitted (the book is at the cap, or every
+    # qualifier is already open). Never announce a "NEW Tier A Signal" that opens nothing.
+    if not taken:
+        why = (f"book at cap ({len(open_tks)}/{sel.get('max_concurrent', 6)})"
+               if skipped_for_cap else 'every qualifier is already an open position')
+        note = (f"Tier A Daily — {scan_date}\n{len(tradeable)} name(s) qualified but none admitted: "
+                f"{why}. Skipped: {', '.join(skipped_for_cap or [c['ticker'] for c in tradeable])}. "
+                f"No new position, no X post.")
+        print(f"\n--- NO ENTRY ---\n{note}\n")
+        if not args.dry_run:
+            send_telegram(note)
+            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version(),
+                                      notes=f'Qualified but none admitted: {why}', taken_tickers=[])
+        return
+
+    # AUDIT F18: feature a name that was ACTUALLY admitted. `top` is ranked before open
+    # tickers are excluded, so it could be a position already held — announced as new
+    # while nothing was opened. `top` stays the archive's picked_ticker, because the
+    # self-audit's picked-vs-skipped ledger scores what the OLD one-pick rule would do.
+    featured = taken[0]
+    day_pool = [c for c in survivors if c['ticker'] != featured['ticker']]
+    msg = format_signal(featured, day_pool, taken=taken) + watch_block
     print(f"\n--- ALERT ---\n{msg}\n")
 
     if args.dry_run:
@@ -218,6 +245,17 @@ def main():
     else:
         ok = send_telegram(msg)
         print(f"Telegram send: {'OK' if ok else 'FAILED'}")
+        if not ok:
+            # AUDIT F19: a failed Telegram send used to return normally and persist
+            # NOTHING — the decision vanished and the run showed green. No position is
+            # opened unannounced (entries and closes must stay symmetric in public), but
+            # the decision is archived and the run FAILS so a human sees it.
+            archive.archive_daily_run(scan_date, enriched, top['ticker'], min_score, P.version(),
+                                      notes=f'TELEGRAM DELIVERY FAILED — no position opened. '
+                                            f'Would have tracked: {[t["ticker"] for t in taken]}',
+                                      taken_tickers=[])
+            print('::error::Telegram delivery failed; decision archived, no position opened')
+            raise SystemExit(1)
         if ok:
             # Compute T1/T2/T3/STOP from entry + parameters, for EVERY tracked name
             tps = P.tp_pcts()
@@ -240,15 +278,26 @@ def main():
             # a micro-cap whose skew flipped bearish intraday was auto-posted before
             # anyone could look). The bot now PREPARES the post and saves it as a draft
             # for manual review; it only auto-posts if ENABLE_X_AUTOPOST is explicitly set.
-            x_msg = x_post.format_signal_for_x(top, [c for c in survivors if c['ticker'] != top['ticker']],
-                                               taken=taken)
+            x_msg = x_post.format_signal_for_x(featured, day_pool, taken=taken)
             if os.environ.get('ENABLE_X_AUTOPOST', '').strip().lower() in ('1', 'true', 'yes'):
                 x_ok = x_post.post_to_x(x_msg)
-                if x_ok: print('X post: OK')
+                if x_ok:
+                    print('X post: OK')
+                else:
+                    # AUDIT F19: a failed ENTRY post created no draft and no alert, so a
+                    # tracked position could exist with no public entry. Mirror the close
+                    # path: save the draft and tell the user to post it by hand.
+                    os.makedirs('x_drafts', exist_ok=True)
+                    draft = f"x_drafts/{scan_date}_{featured['ticker']}.txt"
+                    with open(draft, 'w', encoding='utf-8') as fh:
+                        fh.write(x_msg)
+                    send_telegram(f"⚠️ {featured['ticker']} ENTRY was NOT published on X (API rejected "
+                                  f"it). Position is tracked but has no public entry. Draft: {draft}")
+                    print(f'::warning::X entry post failed; draft saved to {draft}')
             else:
                 try:
                     os.makedirs('x_drafts', exist_ok=True)
-                    draft = f"x_drafts/{scan_date}_{top['ticker']}.txt"
+                    draft = f"x_drafts/{scan_date}_{featured['ticker']}.txt"
                     with open(draft, 'w', encoding='utf-8') as fh:
                         fh.write(x_msg)
                     print(f"X auto-post DISABLED (safe default) — draft saved to {draft} for manual review.")

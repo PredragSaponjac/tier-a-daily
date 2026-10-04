@@ -487,6 +487,62 @@ def check_self_audit_decisions():
          list(SA._open_at(x, 2).index) == [2, 3], f'kept {list(SA._open_at(x, 2).index)}')
 
 
+def check_state_safety():
+    """AUDIT F07/F08 (2026-10-04). Reproduces the auditor's two failure paths: a close
+    that could vanish between writes, and a corrupt book silently read as empty."""
+    print('\n=== 8b. portfolio state safety (audit F07/F08) ===')
+    import tempfile
+    import json as _json
+    from pathlib import Path as _P
+    import position_tracker as PT
+    keep = (PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE)
+    pos = {'ticker': 'ZZ', 'entry_date': '2026-01-02', 'entry_price': 100.0, 'T1': 110.0,
+           'T2': 111.0, 'T3': 120.0, 'STOP': 93.0, 'MAE_pct': -2.0, 'MAE_date': None,
+           'MFE_pct': 12.0, 'MFE_date': None, 'filter_score': 0}
+    try:
+        tmp = _P(tempfile.mkdtemp())
+        PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = tmp, tmp / 'open.json', tmp / 'rec.csv'
+
+        # F08: absent file is an empty book; a present-but-corrupt file must RAISE
+        hard('absent open-positions file -> empty book', PT.list_open() == [], 'not empty')
+        PT.OPEN_FILE.write_text('{"positions": [ {broken', encoding='utf-8')
+        try:
+            PT.list_open(); raised = False
+        except PT.PortfolioStateError:
+            raised = True
+        hard('CORRUPT open-positions file raises instead of reading as an empty book (F08)',
+             raised, 'a corrupt book was treated as "no positions" and could be overwritten')
+
+        # F07: unreadable durable record -> close must FAIL and leave the position open
+        PT._save_open({'positions': [dict(pos)]})
+        (tmp / 'closed_trades.json').write_text('not json', encoding='utf-8')
+        try:
+            PT.close_position('ZZ', '2026-01-02', 110.0, 'TP1', '2026-01-10'); raised = False
+        except PT.PortfolioStateError:
+            raised = True
+        still_open = [p['ticker'] for p in PT.list_open()]
+        hard('close with an unreadable record RAISES and the position STAYS open (F07)',
+             raised and still_open == ['ZZ'],
+             f'raised={raised}, open after={still_open} — the trade could vanish from both')
+
+        # F07 happy path + idempotent recovery: record written, then position removed
+        (tmp / 'closed_trades.json').write_text('[]', encoding='utf-8')
+        PT.close_position('ZZ', '2026-01-02', 110.0, 'TP1', '2026-01-10')
+        recs = _json.loads((tmp / 'closed_trades.json').read_text(encoding='utf-8'))
+        hard('normal close writes the durable record AND removes the open position',
+             [r['ticker'] for r in recs] == ['ZZ'] and PT.list_open() == [],
+             f'records {[r["ticker"] for r in recs]}, open {PT.list_open()}')
+        PT._save_open({'positions': [dict(pos)]})                # simulate crash before removal
+        PT.close_position('ZZ', '2026-01-02', 110.0, 'TP1', '2026-01-10')
+        recs = _json.loads((tmp / 'closed_trades.json').read_text(encoding='utf-8'))
+        hard('re-running a half-finished close is idempotent (one record, position removed)',
+             len(recs) == 1 and PT.list_open() == [], f'{len(recs)} records, open {PT.list_open()}')
+    except Exception as e:
+        hard('state safety checks', False, f'{type(e).__name__}: {e}')
+    finally:
+        PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = keep
+
+
 def check_take_all():
     """TAKE-ALL selection (parameters 1.1.0, 2026-09-02) — tests main.select_taken, the
     pure function the live path calls. Cap, no-double-up, and the OFF switch must all hold;
@@ -508,9 +564,34 @@ def check_take_all():
     hard('take-all tracks every tradeable name under the cap, rank order',
          [c['ticker'] for c in taken] == ['A', 'B', 'C'] and not skip, str([c['ticker'] for c in taken]))
     taken, skip = M.select_taken([A, B, C], A, {'V', 'W', 'X', 'Y', 'Z'}, on, rk)
-    hard('cap leaves room for max_concurrent - open (floor 1) and reports the rest',
+    hard('5 open of cap 6 -> exactly one slot, the rest reported as skipped',
          [c['ticker'] for c in taken] == ['A'] and skip == ['B', 'C'],
          f'{[c["ticker"] for c in taken]} skipped {skip}')
+    # AUDIT F06: the case that actually separates the bug from the fix. The old
+    # max(1, cap - open) admitted a 7th here; the 5-open test above cannot tell them apart.
+    full = {'U', 'V', 'W', 'X', 'Y', 'Z'}
+    taken, skip = M.select_taken([A, B, C], A, full, on, rk)
+    hard('book FULL (6 of 6) -> admits NOTHING, no 7th position (audit F06)',
+         taken == [] and skip == ['A', 'B', 'C'], f'admitted {[c["ticker"] for c in taken]}')
+    taken, _ = M.select_taken([A], A, full | {'T'}, on, rk)
+    hard('book OVER cap (7 of 6) -> admits nothing, cannot keep growing',
+         taken == [], f'admitted {[c["ticker"] for c in taken]}')
+    taken, _ = M.select_taken([A, B], A, {'A'}, {'take_all_qualified': False, 'max_concurrent': 6}, rk)
+    hard('old one-pick rule never re-announces a name already open (audit F18)',
+         taken == [], f'admitted {[c["ticker"] for c in taken]}')
+    import tempfile, json as _json
+    import archive as AR
+    keep_dir = AR.ARCHIVE_DIR
+    try:
+        AR.ARCHIVE_DIR = Path(tempfile.mkdtemp())      # never touch the real signals/ dir
+        out = AR.archive_daily_run('2099-01-02', [], 'A', 3, 'test', taken_tickers=[])
+        rec = _json.loads(Path(out).read_text(encoding='utf-8'))
+        hard('archive keeps an explicit EMPTY taken list (audit F18: [] was rewritten to [picked])',
+             rec.get('taken_tickers') == [], f"recorded {rec.get('taken_tickers')}")
+    except Exception as e:
+        hard('archive empty-list check', False, f'{type(e).__name__}: {e}')
+    finally:
+        AR.ARCHIVE_DIR = keep_dir
     taken, _ = M.select_taken([A, B, C], A, {'B'}, on, rk)
     hard('a ticker already open is never doubled up',
          'B' not in [c['ticker'] for c in taken], str([c['ticker'] for c in taken]))
@@ -524,7 +605,8 @@ def main():
     print('PREFLIGHT — tier-a-daily')
     for fn in (check_gates, check_data_quality, check_formatters,
                check_wiring, check_silent_failures, check_self_audit,
-               check_self_audit_decisions, check_take_all, check_network):
+               check_self_audit_decisions, check_state_safety, check_take_all,
+               check_network):
         try:
             fn()
         except Exception as e:

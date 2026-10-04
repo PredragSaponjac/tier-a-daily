@@ -33,7 +33,11 @@ def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str |
         'parameters_version': parameters_version,
         'min_filter_score_used': min_score_used,
         'picked_ticker': picked_ticker,
-        'taken_tickers': list(taken_tickers) if taken_tickers else ([picked_ticker] if picked_ticker else []),
+        # AUDIT F18: distinguish "not supplied" (None -> legacy single pick) from an
+        # explicit EMPTY list. `if taken_tickers` treated [] as missing and substituted
+        # [picked_ticker], recording a position that was never opened.
+        'taken_tickers': (list(taken_tickers) if taken_tickers is not None
+                          else ([picked_ticker] if picked_ticker else [])),
         'notes': notes,
         'candidates': [],
     }
