@@ -581,6 +581,26 @@ def check_exit_engine():
     hard('research labels book a gap-down at the open too (-20%, not -7%)',
          out == 'STOP' and abs(pnl + 20.0) < 1e-9, f'research said {out} {pnl:+.2f}%')
 
+    # AUDIT F20: MAE/MFE count only the part of the exit bar the position HELD
+    held = [('intraday stop: nothing below the stop counts; the high (timing unknown) does',
+             (100, 101, 92), (93.0, 101.0)),
+            ('gap-down stop at the open: only the open was held', (80, 90, 75), (80.0, 80.0)),
+            ('intraday target: nothing above the target counts', (100, 125, 99), (99.0, 110.0)),
+            ('gap-up target booked at target: nothing after counts', (115, 118, 112), (110.0, 110.0)),
+            ('ambiguous bar booked stop-first: its target touch was after the exit', (100, 112, 90), (93.0, 100.0)),
+            ('no exit: the whole bar was held', (100, 105, 95), (95.0, 105.0))]
+    for name, (o, h, l), want in held:
+        got = exits.held_extremes(o, h, l, exits.resolve_bar(o, h, l, T1, STOP))
+        hard(f'F20 {name}', tuple(map(float, got)) == want, f'got {got}, want {want}')
+    hard('F20: the live monitor uses the SHARED held-period rule',
+         MON.held_extremes is exits.held_extremes, 'monitor has its own copy')
+    g = pd.DataFrame({'date': ['d0', 'd1'], 'Open': [100.0, 100.0], 'High': [100.0, 125.0],
+                      'Low': [100.0, 99.0], 'Close': [100.0, 120.0]})
+    rec = PL.label_one(g, 'd0', 100.0)
+    hard('F20: research MFE on a +10% win is +10, not the +25 the stock reached after the exit',
+         rec is not None and abs(rec['mfe_pct'] - 10.0) < 1e-9 and abs(rec['mae_pct'] + 1.0) < 1e-9,
+         f"got mfe {rec and rec['mfe_pct']}, mae {rec and rec['mae_pct']}")
+
 
 def check_db_storage():
     """AUDIT F09/F10 (2026-10-04): db_state.py against a FAKE release, fully offline.
@@ -794,6 +814,27 @@ def check_retry_and_replay():
          'the rule exists but main() does not call it')
 
 
+def check_residual_labels():
+    """AUDIT F13 (2026-10-04), the auditor's late-arrival fixture: peers labelled in an
+    earlier run must stay in the median. Old code centred each arrival batch on itself."""
+    print('\n=== 8g. sector/industry residuals use the full peer group (audit F13) ===')
+    import sqlite3 as _sq
+    import label_candidates as LC
+    c = _sq.connect(':memory:')
+    c.execute('CREATE TABLE candidate_log (id INTEGER PRIMARY KEY, scan_date TEXT, sector TEXT, '
+              'industry TEXT, fwd_5d_return REAL, sector_residual_5d REAL, industry_residual_5d REAL)')
+    ins = 'INSERT INTO candidate_log (scan_date, sector, industry, fwd_5d_return) VALUES (?,?,?,?)'
+    import io, contextlib
+    with contextlib.redirect_stdout(io.StringIO()):
+        c.executemany(ins, [('2026-01-02', 'Tech', 'Soft', v) for v in (100, 101, 102)])
+        LC._compute_residuals(c)
+        c.executemany(ins, [('2026-01-02', 'Tech', 'Soft', v) for v in (0, 1, 2)])
+        LC._compute_residuals(c)
+    got = [r[0] for r in c.execute('SELECT sector_residual_5d FROM candidate_log ORDER BY fwd_5d_return')]
+    hard('late arrivals are centred on the FULL peer median (51), and earlier rows are repaired',
+         got == [-51, -50, -49, 49, 50, 51], f'got {got}')
+
+
 def check_workflow_wiring():
     """Workflow facts the audit found broken (F09/F10/F11/F19, 2026-10-04), checked as text so
     no YAML library is needed. Includes the auto-retry trigger, which matched NOTHING from 7/27
@@ -911,7 +952,8 @@ def main():
     for fn in (check_gates, check_data_quality, check_formatters,
                check_wiring, check_silent_failures, check_self_audit,
                check_self_audit_decisions, check_state_safety, check_exit_engine,
-               check_db_storage, check_retry_and_replay, check_workflow_wiring,
+               check_db_storage, check_retry_and_replay, check_residual_labels,
+               check_workflow_wiring,
                check_take_all, check_network):
         try:
             fn()

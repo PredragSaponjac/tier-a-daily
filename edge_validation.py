@@ -25,6 +25,10 @@ out-of-sample:
 Decision protocol (user-approved): interim look at n>=10 fresh candidates — wire into
 selection ONLY if overwhelming (Fisher p<0.05 on fresh data alone); formal decision
 at n>=15-20. Until then the live bot's selection logic is UNTOUCHED.
+SUPERSEDED 2026-10-04 (external audit): uncorrected p<0.05 is weaker than the registry's
+bar. Ideas are promoted only through hypotheses.json + self_audit.py (Bonferroni across
+all registered tests, both halves agreeing, post-registration data only). This script
+stays as an exploratory view.
 
 Uses candidate_log (features captured at scan time) + auto-labeled forward returns;
 skew_slope is recomputed from skew_daily history (deterministic, backward-looking).
@@ -62,7 +66,10 @@ def bucket_stats(d, mask, name):
         tab = [[int(pp['big20'].sum()), len(pp) - int(pp['big20'].sum())],
                [int(pf['big20'].sum()), len(pf) - int(pf['big20'].sum())]]
         _, pv = stats.fisher_exact(tab)
-        print(f'    Fisher (big20): p={pv:.4f}  {"<-- OVERWHELMING (wire-eligible)" if pv < 0.05 else ""}')
+        # 2026-10-04 (external audit): an UNCORRECTED p<0.05 used to print "wire-eligible",
+        # a weaker bar than the registry's (0.05 / number of tests, both halves agreeing).
+        # This script is exploratory; promotion goes only through self_audit.py.
+        print(f'    Fisher (big20): p={pv:.4f}  {"<-- nominal p<0.05 (exploratory, NOT a promotion bar)" if pv < 0.05 else ""}')
     else:
         print('    Fisher: not yet (need >=5 labeled per bucket)')
 
@@ -144,7 +151,9 @@ def main():
     else:
         print(f'    only {len(d3)} fresh candidates with 3d data — too few yet')
 
-    print('\nreminder: wire-in requires (a) n>=10 AND Fisher p<0.05, or (b) n>=15 review.')
+    print('\nreminder: this script is EXPLORATORY. A rule change needs the registry bar in '
+          'self_audit.py (p below 0.05 / number of registered tests, both halves agreeing, '
+          'fresh data only) AND your sign-off. Uncorrected p<0.05 here is not that bar.')
     print('Selection logic AND the -7% stop stay untouched until you sign off on a scorecard.')
 
 

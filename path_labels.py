@@ -64,7 +64,9 @@ ADD_COLS = [('call_wall_oi_d2', 'REAL'), ('r_t8', 'REAL'),
 #   1  original walk: stop-first, stop always filled at exactly -stop_pct
 #   2  2026-10-04: shared exits.resolve_bar — gap-downs fill at the open, ambiguous
 #      bars booked STOP, identical to the live monitor
-LABEL_VERSION = 2
+#   3  2026-10-04: MAE/MFE count only the HELD part of the exit bar (exits.held_extremes,
+#      audit F20); prices beyond the fill came after the exit
+LABEL_VERSION = 3
 
 
 def walk(fut, entry, t1_pct, stop_pct):
@@ -97,10 +99,18 @@ def label_one(g, d, entry):
     if len(fut) == 0:
         return None
     pnl, day, out = walk(fut, entry, LIVE_T1, LIVE_STOP)
-    # path stats up to resolution (or all bars seen)
+    # path stats up to resolution (or all bars seen). AUDIT F20: on the exit bar only the
+    # part the position HELD counts — the same rule the live monitor uses.
     upto = fut.iloc[:day] if day else fut
-    mae = (float(upto['Low'].min()) / entry - 1) * 100
-    mfe = (float(upto['High'].max()) / entry - 1) * 100
+    lows, highs = list(upto['Low'].astype(float)), list(upto['High'].astype(float))
+    if day:
+        from exits import resolve_bar, held_extremes
+        xb = fut.iloc[day - 1]
+        o, h, l = float(xb['Open']), float(xb['High']), float(xb['Low'])
+        lows[-1], highs[-1] = held_extremes(
+            o, h, l, resolve_bar(o, h, l, entry * (1 + LIVE_T1 / 100), entry * (1 - LIVE_STOP / 100)))
+    mae = (min(lows) / entry - 1) * 100
+    mfe = (max(highs) / entry - 1) * 100
     green = next((k for k, (_, r) in enumerate(upto.iterrows(), start=1)
                   if float(r['Close']) > entry), None)
     rec = {

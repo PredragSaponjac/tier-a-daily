@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 import parameters as P
 import position_tracker as PT
-from exits import resolve_bar   # ONE exit rule, shared with path_labels (audit F02/F03)
+from exits import resolve_bar, held_extremes   # ONE exit rule, shared with path_labels (F02/F03/F20)
 import x_post
 from alert import format_close, send_telegram
 
@@ -91,10 +91,13 @@ def check_position(pos: dict, dry_run: bool = False) -> dict | None:
         high = float(row['High'])
         low = float(row['Low'])
         opn = float(row['Open'])
-        # Update MAE / MFE
-        PT.update_mae_mfe(tk, entry_date, intraday_low=low, intraday_high=high, on_date=date_str)
-
         res = resolve_bar(opn, high, low, T1, STOP)
+        # MAE / MFE from the part of the bar actually HELD (audit F20): on an exit bar,
+        # prices beyond the fill came after it and must not count.
+        lo_h, hi_h = held_extremes(opn, high, low, res)
+        upd = PT.update_mae_mfe(tk, entry_date, intraday_low=lo_h, intraday_high=hi_h, on_date=date_str)
+        if upd:
+            pos = {**pos, 'MAE_pct': upd.get('MAE_pct'), 'MFE_pct': upd.get('MFE_pct')}
         if res is None:
             continue
         reason, exit_price, note = res

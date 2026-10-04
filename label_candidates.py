@@ -5,6 +5,12 @@ Label Candidates — Fill in forward returns for candidate_log rows.
 For each candidate_log row with NULL forward returns, fetches price data
 via yfinance and fills 1d/3d/5d/10d/20d returns.
 
+HORIZONS ARE CALENDAR DAYS (documented 2026-10-04, audit F20): fwd_Nd is the first
+close ON OR AFTER scan_date + N calendar days, not N trading sessions. A Friday fwd_3d
+lands on Monday (one session later); fwd_20d is roughly 14 sessions. fwd_Nd_date
+records the session actually used. Read every "Nd" result in that light; the
+stop-aware path labels in path_labels.py count sessions.
+
 Usage:
     python label_candidates.py
     python label_candidates.py --db path/to/skew_history.db
@@ -93,7 +99,8 @@ def update_forward_returns(db_path: str) -> int:
 
                 updates = {}
                 for label, n_days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10), ("20d", 20)]:
-                    # Forward return: price at signal+N days vs price at signal
+                    # Forward return: price at signal + N CALENDAR days (first session on or
+                    # after) vs price at signal. Not N trading sessions; see module docstring.
                     target_date = cand_date + dt.timedelta(days=n_days)
                     if target_date.date() > today:
                         continue  # not enough time has passed
@@ -145,18 +152,39 @@ def update_forward_returns(db_path: str) -> int:
     return updated
 
 
+def _residuals(df: pd.DataFrame, key: str, excluded: tuple) -> pd.Series:
+    """fwd_5d_return minus the median of its COMPLETE (scan_date, key) peer group; NaN for
+    excluded/unknown groups and groups with fewer than 3 members."""
+    ok = df[key].notna() & ~df[key].isin(excluded)
+    g = df[ok].groupby(['scan_date', key])['fwd_5d_return']
+    med, n = g.transform('median'), g.transform('size')
+    out = pd.Series(np.nan, index=df.index)
+    idx = med.index[n >= 3]
+    out.loc[idx] = (df.loc[idx, 'fwd_5d_return'] - med.loc[idx]).round(4)
+    return out
+
+
 def _compute_residuals(conn: sqlite3.Connection):
     """Compute sector and industry residual returns for 5d horizon.
 
     sector_residual_5d = fwd_5d_return - median(fwd_5d_return for same sector on same date)
     industry_residual_5d = fwd_5d_return - median(fwd_5d_return for same industry on same date)
+
+    AUDIT F13 (2026-10-04): the median was taken over only the rows whose residual was still
+    NULL, so peers labelled in an earlier run were left out and every arrival batch was
+    centred on itself (fixture: returns 0,1,2 arriving after 100,101,102 were each centred
+    within their batch; the full peer median is 51). In the release DB 54,454 of 62,691
+    sector residuals disagreed with full-peer medians. Every run now recomputes from the
+    COMPLETE population of each date and rewrites only the values that changed, so late
+    arrivals and re-labelled returns repair their peers too. Research-only columns: nothing
+    in the live bot or the self-audit reads them.
     """
     try:
         df = pd.read_sql_query("""
-            SELECT id, ticker, scan_date, sector, industry, fwd_5d_return
+            SELECT id, scan_date, sector, industry, fwd_5d_return,
+                   sector_residual_5d AS old_s, industry_residual_5d AS old_i
             FROM candidate_log
             WHERE fwd_5d_return IS NOT NULL
-            AND (sector_residual_5d IS NULL OR industry_residual_5d IS NULL)
         """, conn)
     except Exception:
         return
@@ -164,35 +192,19 @@ def _compute_residuals(conn: sqlite3.Connection):
     if df.empty:
         return
 
-    updated = 0
+    new_s = _residuals(df, 'sector', ('Unknown', '', 'ETF'))
+    new_i = _residuals(df, 'industry', ('Unknown', ''))
 
-    # Sector residuals
-    for (date, sector), grp in df.groupby(["scan_date", "sector"]):
-        if not sector or sector in ("Unknown", "", "ETF") or len(grp) < 3:
-            continue
-        median_ret = grp["fwd_5d_return"].median()
-        for _, row in grp.iterrows():
-            residual = round(row["fwd_5d_return"] - median_ret, 4)
-            conn.execute(
-                "UPDATE candidate_log SET sector_residual_5d = ? WHERE id = ?",
-                (residual, row["id"])
-            )
-            updated += 1
+    def same(a, b):
+        return (a.isna() & b.isna()) | ((a - b).abs() < 1e-9)
 
-    # Industry residuals
-    for (date, industry), grp in df.groupby(["scan_date", "industry"]):
-        if not industry or industry in ("Unknown", "") or len(grp) < 3:
-            continue
-        median_ret = grp["fwd_5d_return"].median()
-        for _, row in grp.iterrows():
-            residual = round(row["fwd_5d_return"] - median_ret, 4)
-            conn.execute(
-                "UPDATE candidate_log SET industry_residual_5d = ? WHERE id = ?",
-                (residual, row["id"])
-            )
-
-    if updated > 0:
-        print(f"  [RESIDUALS] Computed sector/industry residuals for {updated} rows")
+    changed = ~(same(new_s, df['old_s']) & same(new_i, df['old_i']))
+    rows = [(None if pd.isna(s) else float(s), None if pd.isna(i) else float(i), int(k))
+            for s, i, k in zip(new_s[changed], new_i[changed], df['id'][changed])]
+    if rows:
+        conn.executemany("UPDATE candidate_log SET sector_residual_5d = ?, "
+                         "industry_residual_5d = ? WHERE id = ?", rows)
+        print(f"  [RESIDUALS] recomputed from full peer groups: {len(rows)} rows changed")
 
 
 if __name__ == "__main__":

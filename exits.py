@@ -39,3 +39,25 @@ def resolve_bar(opn: float, high: float, low: float, T1: float, STOP: float):
     if hit_stop:
         return ('STOP', STOP, '')
     return None
+
+
+def held_extremes(opn: float, high: float, low: float, res) -> tuple:
+    """(low, high) of a bar that the position actually HELD through, for MAE/MFE.
+
+    AUDIT F20 (2026-10-04): MAE/MFE used the whole exit-day bar, including prices after the
+    exit. RDDT's record shows a +19.1% peak on a trade booked at +10%; the close post calls
+    that number "Best unrealised reached", a claim about the HELD period.
+      - Prices beyond the exit level come after the fill (price must pass the level first).
+      - After a gap fill at the open, the rest of the bar is post-exit.
+      - An ambiguous bar is booked stop-first, so its target touch counts as post-exit.
+      - The opposite side of an ordinary exit bar is kept: its timing is unknown.
+    res is resolve_bar()'s result for this bar (None = no exit, whole bar held).
+    """
+    if res is None:
+        return low, high
+    reason, px, note = res
+    if note.startswith('gapped'):
+        return px, px
+    if reason == 'STOP':
+        return px, (opn if note.startswith('AMBIGUOUS') else high)
+    return low, px

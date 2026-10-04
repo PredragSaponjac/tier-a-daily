@@ -1,50 +1,60 @@
 # Tier A Daily
 
-Daily options-flow-enriched signal service. Built on top of the Skew Tracker AR methodology + UW composite filter (research_uw_picker_v1).
+Daily options-skew reversal signal. Built on the Skew Tracker methodology: each weekday PM
+scan of ~660 optionable names flags Tier A candidates, which this bot gates, tracks and
+publishes. Every entry and every close (wins and losses alike) goes to Telegram, X and a
+public Google Sheet.
 
-## What it does
+## What it does (parameters 1.1.0)
 
-After the daily Skew Tracker PM scan produces Tier A candidates, this bot:
-1. Pulls UW options flow + dark pool data for each candidate
-2. Computes the composite filter score (NCP entry z-score, call/put OI 10d % change, dark pool footprint)
-3. Applies vetoes (earnings within 14d, liquidity floor, recent news)
-4. Ranks remaining candidates by composite score
-5. Posts the top-ranked signal to Telegram with: entry, T1/T2/T3, stop, reasoning, track record, disclaimer
-6. (Phase 2) Monitors intraday for TP1 or stop hits, auto-posts close alerts
-7. (Phase 2) Logs every signal + outcome + MAE/MFE to public Google Sheet
+1. Reads the day's Tier A candidates from the PM scan (bullish skew reversal after a
+   washout: near-dated skew ≤ −7, skew change ≤ −7 and spot down ≥ 8% over the scan's
+   lookback window, put-wall OI not rising). The column is named `skew_change_5d`, but the
+   2026-10-04 audit (F01) found the window actually spans 9 sessions; all evidence to date
+   was gathered on that 9-session window.
+2. Applies the gates: at least one strong leg (structural skew or vol cushion), not below the
+   put wall, stale-wall cap, chain-noise filter, earnings/liquidity vetoes
+3. **Takes every name that passes** (since 2026-09-02), up to 6 open positions, each sized at
+   1/6 of the book. Ranking only decides who yields to the cap; it has no measured skill.
+4. Monitors intraday: exits at **+10% (TP1)** or **−7% (stop)**, nothing else. TP2/TP3 are shown
+   for readers who hold longer, at their own discretion.
+5. Logs every signal, decision and outcome; a weekly self-audit scores registered ideas on
+   new data only and never changes the rules by itself.
 
-## Exit rules (TP1-default)
+## How exits are booked
 
-- **TP1 (+10%):** auto-close signal — bot's default exit
-- **TP2 (+11%)**, **TP3 (+20%):** shown in post for traders who want to hold longer (manual at their own discretion)
-- **Stop (-7%):** auto-close signal
+One shared rule (`exits.py`) for the live book and all research labels: a bar touching both
+levels is booked as the stop; a gap through the stop fills at the open; a gap through the
+target is booked at the target. MAE/MFE count only the part of a bar the position held.
 
-Backtest: 67% TP1 hit rate, 71% profitable, +5.20% avg/trade across n=63 Tier A historical.
+## Performance
 
-## Composite filter (research_uw_picker_v1)
+See the live track record (Google Sheet, linked in every post) and `audit_latest.json`.
+The May 2026 backtest headline previously shown here (n=63, +5.2%/trade) predates the
+current gates and universe and is superseded. As of the 2026-10-04 external audit, the
+all-qualifier research cohort does not yet establish an edge statistically: its 95%
+interval for mean P&L per trade includes zero.
 
-Score 0-4 across:
-1. `net_call_premium` entry-day z-score ≤ -0.5 (vs prior 10d baseline)
-2. `call_OI` 10-day % change ≤ -5%
-3. `put_OI` 10-day % change ≤ 0%
-4. Bonus: dark pool 10d large blocks ≥ 30
+## Data and infrastructure
 
-Theory: structural unwind + entry capitulation precedes exceptional bottoms (3 Bonferroni-significant findings, n=177 historical).
-
-## Setup
-
-See `SETUP.md` for: Telegram channel, Google Sheet, GitHub repo, env vars.
+- `skew_history.db` lives as versioned, digest-verified snapshots on the `db-state` release
+  (`db_state.py`); earlier generations are kept, and a stale writer cannot overwrite a newer one.
+- AM scan, PM scan and the weekly audit share one writer queue; the PM run has a guarded
+  backup run and marks itself complete only after records and database are stored.
+- `preflight.py` exercises the live code paths and the audit fixes on every push.
 
 ## CLI
 
 ```bash
-python main.py                          # run against latest Tier A scan
-python main.py --scan-date 2026-05-18   # test against specific date
-python main.py --dry-run                # compute + format but don't send
+python main.py --require-today          # production: today's scan only
+python main.py --dry-run                # compute + format, send nothing
+python main.py --scan-date 2026-09-29   # READ-ONLY replay of a past date (not point-in-time)
+python main.py --scan-date D --live     # a replay that really sends/tracks (rarely right)
+python db_state.py pull | push | list   # database snapshots on the release
+python preflight.py                     # verify before shipping
 ```
 
-## Status
+The Unusual Whales composite filter (research_uw_picker_v1) is inactive since the UW
+subscription was cancelled; it only ever set ranking priority, never a hard gate.
 
-- **Phase 1 (now):** local MVP, Telegram alerts to private chat for testing
-- **Phase 2 (next):** GH Actions cron, public Telegram channel, X auto-posting, Google Sheet logging with MAE/MFE
-- **Phase 3 (~Month 3-4):** subscription tier ($200/mo after track record established + lawyer consult for publisher exemption)
+See `SETUP.md` for Telegram, Google Sheet, GitHub and environment variables.
