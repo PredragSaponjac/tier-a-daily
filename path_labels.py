@@ -55,17 +55,34 @@ DDL = """CREATE TABLE IF NOT EXISTS tier_a_paths (
 # S5_call_wall_oi_d2 (registered 2026-09-02): call-wall OI LEVEL two scans after entry.
 # r_t8 / r_nevergreen_d2 / r_nevergreen_d3 (registered 2026-09-26): see hypotheses.json.
 ADD_COLS = [('call_wall_oi_d2', 'REAL'), ('r_t8', 'REAL'),
-            ('r_nevergreen_d2', 'REAL'), ('r_nevergreen_d3', 'REAL')]
+            ('r_nevergreen_d2', 'REAL'), ('r_nevergreen_d3', 'REAL'),
+            ('label_version', 'INTEGER')]
+
+# LABEL_VERSION — bump whenever the labelling ENGINE changes. Every row whose stored
+# version differs is relabelled on the next run, so old and new rows can never silently
+# mix two engines. (Audit F02/F03 provenance.)
+#   1  original walk: stop-first, stop always filled at exactly -stop_pct
+#   2  2026-10-04: shared exits.resolve_bar — gap-downs fill at the open, ambiguous
+#      bars booked STOP, identical to the live monitor
+LABEL_VERSION = 2
 
 
 def walk(fut, entry, t1_pct, stop_pct):
-    """Stop-aware walk. Returns (pnl%, day_hit or None, outcome)."""
+    """Walk bars with the SHARED exit rule. Returns (pnl%, day_hit or None, outcome).
+
+    AUDIT F02/F03 (2026-10-04): this used its own logic — stop-first but always filled at
+    exactly -stop_pct, even through a gap — while the live monitor checked the target
+    first. Now both call exits.resolve_bar, so research labels and the live book resolve
+    every bar identically, including gap fills at the open (pnl can be worse than
+    -stop_pct, as it would be in reality).
+    """
+    from exits import resolve_bar
     up, dn = entry * (1 + t1_pct / 100), entry * (1 - stop_pct / 100)
     for k, (_, r) in enumerate(fut.iterrows(), start=1):
-        if float(r['Low']) <= dn:
-            return -stop_pct, k, 'STOP'
-        if float(r['High']) >= up:
-            return t1_pct, k, 'T1'
+        res = resolve_bar(float(r['Open']), float(r['High']), float(r['Low']), up, dn)
+        if res is not None:
+            reason, px, _note = res
+            return (px / entry - 1) * 100, k, ('T1' if reason == 'TP1' else 'STOP')
     if len(fut) >= WINDOW:
         return (float(fut.iloc[-1]['Close']) / entry - 1) * 100, None, 'EXPIRED'
     return (float(fut.iloc[-1]['Close']) / entry - 1) * 100 if len(fut) else 0.0, None, 'OPEN'
@@ -93,6 +110,7 @@ def label_one(g, d, entry):
         'mae_pct': round(mae, 3), 'mfe_pct': round(mfe, 3),
         'outcome': out, 'pnl_pct': round(pnl, 3), 'r_live': round(pnl / LIVE_STOP, 4),
         'bars_seen': len(fut), 'complete': int(out in ('T1', 'STOP', 'EXPIRED')),
+        'label_version': LABEL_VERSION,
     }
     # shadows — each walked independently with its own rule; NULL while still OPEN
     for col, t1, sp in (('r_stop5', 10.0, 5.0), ('r_stop6', 10.0, 6.0),
@@ -172,8 +190,8 @@ def main():
     # can satisfy the target-8 and never-green columns while the target-12 shadow is still
     # walking, and the old filter would then freeze r_t12 as NULL forever. Each walk ends
     # in T1, STOP or EXPIRED at WINDOW bars, so this cannot loop indefinitely.
-    done = pd.read_sql_query("""SELECT ticker, scan_date FROM tier_a_paths
-        WHERE complete=1
+    done = pd.read_sql_query(f"""SELECT ticker, scan_date FROM tier_a_paths
+        WHERE complete=1 AND label_version = {LABEL_VERSION}
           AND r_stop5 IS NOT NULL AND r_stop6 IS NOT NULL AND r_t12 IS NOT NULL
           AND r_t8 IS NOT NULL AND r_nevergreen_d2 IS NOT NULL AND r_nevergreen_d3 IS NOT NULL""", con)
     key = set(zip(done.ticker, done.scan_date))

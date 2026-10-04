@@ -205,8 +205,12 @@ def check_wiring():
     mon = (REPO / 'monitor.py').read_text(encoding='utf-8')
     hard('monitor publishes closes to X', '_publish_close' in mon and 'x_post' in mon,
          'monitor.py does not call x_post on close')
-    hard('monitor calls _publish_close on TP1 path',
-         mon.count('_publish_close(') >= 3, 'expected def + TP1 + STOP call sites')
+    # Since 2026-10-04 TP1 and STOP share ONE resolved path (exits.resolve_bar), so the old
+    # "def + TP1 + STOP call sites" string count no longer applies. What must hold is that
+    # the single call publishes whatever reason the bar resolved to, not a hard-coded one.
+    hard('monitor publishes every close it books (one call, passes the resolved reason)',
+         '_publish_close(pos, tk, entry, exit_price, reason, date_str)' in mon,
+         'monitor does not publish the resolved close reason')
 
     mw = (REPO / '.github/workflows/tier_a_monitor.yml').read_text(encoding='utf-8')
     for k in ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_SECRET']:
@@ -543,6 +547,41 @@ def check_state_safety():
         PT.ROOT, PT.OPEN_FILE, PT.RECORD_FILE = keep
 
 
+def check_exit_engine():
+    """AUDIT F02/F03 (2026-10-04): one exit rule for live and research, with the auditor's
+    exact fixtures. Before the fix the live monitor booked fixture 1 as a WIN and filled
+    fixture 2 at 93, a price that never traded that session."""
+    print('\n=== 8c. shared exit engine (audit F02/F03) ===')
+    import exits
+    import monitor as MON
+    import path_labels as PL
+    import pandas as pd
+    T1, STOP = 110.0, 93.0
+    cases = [
+        ('F02 bar touching BOTH target and stop -> STOP, flagged', (100, 112, 90), ('STOP', 93.0, True)),
+        ('F03 gap open BELOW the stop -> fills at the open (80), not 93', (80, 90, 75), ('STOP', 80.0, True)),
+        ('clean target hit -> TP1 at 110', (100, 111, 99), ('TP1', 110.0, False)),
+        ('clean stop hit -> STOP at 93', (100, 101, 92), ('STOP', 93.0, False)),
+        ('gap open ABOVE the target -> booked at target, not the windfall', (115, 118, 112), ('TP1', 110.0, True)),
+    ]
+    for name, (o, h, l), (er, ep, flagged) in cases:
+        r = exits.resolve_bar(o, h, l, T1, STOP)
+        ok = r is not None and r[0] == er and abs(r[1] - ep) < 1e-9 and (bool(r[2]) == flagged)
+        hard(name, ok, f'got {r}')
+    hard('bar touching neither level -> no exit', exits.resolve_bar(100, 105, 95, T1, STOP) is None,
+         'resolved a bar that hit nothing')
+    hard('the live monitor uses the SHARED rule (not its own copy)',
+         MON.resolve_bar is exits.resolve_bar, 'monitor.resolve_bar is a separate implementation')
+    bars = pd.DataFrame({'Open': [100.0], 'High': [112.0], 'Low': [90.0], 'Close': [95.0]})
+    pnl, day, out = PL.walk(bars, 100.0, 10.0, 7.0)
+    hard('research labels agree with the live monitor on an ambiguous bar (both STOP)',
+         out == 'STOP' and abs(pnl + 7.0) < 1e-9, f'research said {out} {pnl:+.2f}%')
+    gap = pd.DataFrame({'Open': [80.0], 'High': [90.0], 'Low': [75.0], 'Close': [85.0]})
+    pnl, _, out = PL.walk(gap, 100.0, 10.0, 7.0)
+    hard('research labels book a gap-down at the open too (-20%, not -7%)',
+         out == 'STOP' and abs(pnl + 20.0) < 1e-9, f'research said {out} {pnl:+.2f}%')
+
+
 def check_take_all():
     """TAKE-ALL selection (parameters 1.1.0, 2026-09-02) — tests main.select_taken, the
     pure function the live path calls. Cap, no-double-up, and the OFF switch must all hold;
@@ -605,8 +644,8 @@ def main():
     print('PREFLIGHT — tier-a-daily')
     for fn in (check_gates, check_data_quality, check_formatters,
                check_wiring, check_silent_failures, check_self_audit,
-               check_self_audit_decisions, check_state_safety, check_take_all,
-               check_network):
+               check_self_audit_decisions, check_state_safety, check_exit_engine,
+               check_take_all, check_network):
         try:
             fn()
         except Exception as e:

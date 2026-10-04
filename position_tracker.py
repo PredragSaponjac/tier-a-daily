@@ -123,7 +123,8 @@ def update_mae_mfe(ticker: str, entry_date: str, intraday_low: float, intraday_h
     return updated
 
 
-def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason: str, exit_date: str) -> dict | None:
+def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason: str, exit_date: str,
+                   exit_note: str = '') -> dict | None:
     """Close a position. ORDER MATTERS — durable record first, removal last.
 
     AUDIT F07 (2026-10-04): this removed the position from the open book FIRST, then
@@ -185,7 +186,7 @@ def close_position(ticker: str, entry_date: str, exit_price: float, exit_reason:
 
     # (1) DURABLE record first. Raises PortfolioStateError on any failure, so the
     #     position stays open and the monitor run fails visibly instead of losing it.
-    _append_closed_trade(closed, row, days_to_exit)
+    _append_closed_trade(closed, row, days_to_exit, exit_note)
 
     # (2) Remove from the open book ONLY now that the outcome is durably recorded.
     state['positions'] = [p for p in state['positions']
@@ -246,7 +247,7 @@ def _setup_note(ticker: str, entry_date: str, closed: dict) -> str:
         return ''
 
 
-def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
+def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: str = '') -> None:
     """ALSO write the durable record to closed_trades.json.
 
     ROOT-CAUSE FIX (2026-08-14, earned twice: ADSK 7/16 and RDDT 8/14).
@@ -322,7 +323,8 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int) -> None:
         'setup': _setup_note(row['ticker'], row['entry_date'], closed),
         'src': 'monitor',
         'computed_on': datetime.utcnow().date().isoformat(),
-        'note': 'auto-recorded by monitor close',
+        # AUDIT F02/F03: gap fills and ambiguous bars are recorded on the trade itself.
+        'note': 'auto-recorded by monitor close' + (f'; {exit_note}' if exit_note else ''),
         'conserv_day': conserv_day,
         'tp1_day': days_to_exit if reason == 'TP1' else None,
         'tp2_day': None,

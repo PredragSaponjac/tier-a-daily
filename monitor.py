@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 import parameters as P
 import position_tracker as PT
+from exits import resolve_bar   # ONE exit rule, shared with path_labels (audit F02/F03)
 import x_post
 from alert import format_close, send_telegram
 
@@ -84,34 +85,30 @@ def check_position(pos: dict, dry_run: bool = False) -> dict | None:
         # No price action yet (e.g., entered today after close)
         return None
 
-    # Walk day by day; track MAE/MFE; detect TP1 / stop / timeout
+    # Walk day by day; track MAE/MFE; resolve each bar with the SAME rule research uses
     for idx, row in df.iterrows():
         date_str = idx.date().isoformat()
         high = float(row['High'])
         low = float(row['Low'])
+        opn = float(row['Open'])
         # Update MAE / MFE
         PT.update_mae_mfe(tk, entry_date, intraday_low=low, intraday_high=high, on_date=date_str)
 
-        # TP1 check
-        if high >= T1:
-            # Exit at TP1 (assume hit during the day)
-            exit_price = T1
-            print(f'  [{tk}] TP1 HIT on {date_str} (intraday high {high:.2f} >= T1 {T1:.2f})')
-            if dry_run:
-                return {'closed': True, 'reason': 'TP1', 'exit_price': exit_price, 'exit_date': date_str}
-            closed = PT.close_position(tk, entry_date, exit_price, 'TP1', date_str)
-            _publish_close(pos, tk, entry, exit_price, 'TP1', date_str)
-            return {'closed': True, 'reason': 'TP1', 'exit_price': exit_price, 'exit_date': date_str, 'record': closed}
-
-        # STOP check (only if TP1 not hit first this day)
-        if low <= STOP:
-            exit_price = STOP
-            print(f'  [{tk}] STOP HIT on {date_str} (intraday low {low:.2f} <= STOP {STOP:.2f})')
-            if dry_run:
-                return {'closed': True, 'reason': 'STOP', 'exit_price': exit_price, 'exit_date': date_str}
-            closed = PT.close_position(tk, entry_date, exit_price, 'STOP', date_str)
-            _publish_close(pos, tk, entry, exit_price, 'STOP', date_str)
-            return {'closed': True, 'reason': 'STOP', 'exit_price': exit_price, 'exit_date': date_str, 'record': closed}
+        res = resolve_bar(opn, high, low, T1, STOP)
+        if res is None:
+            continue
+        reason, exit_price, note = res
+        print(f'  [{tk}] {reason} on {date_str}: O {opn:.2f} H {high:.2f} L {low:.2f} '
+              f'-> exit {exit_price:.2f}' + (f'  [{note}]' if note else ''))
+        if note:
+            print(f'::warning::{tk} {date_str}: {note}')
+        if dry_run:
+            return {'closed': True, 'reason': reason, 'exit_price': exit_price,
+                    'exit_date': date_str, 'note': note}
+        closed = PT.close_position(tk, entry_date, exit_price, reason, date_str, exit_note=note)
+        _publish_close(pos, tk, entry, exit_price, reason, date_str)
+        return {'closed': True, 'reason': reason, 'exit_price': exit_price,
+                'exit_date': date_str, 'note': note, 'record': closed}
 
     # NO time-based timeout. A position exits ONLY on TP1 (win) or STOP (loss),
     # both handled in the day-walk above. If neither fired, it stays open and
