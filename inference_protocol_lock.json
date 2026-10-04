@@ -4,13 +4,13 @@
     "exits.py": "1757fff561dd7cdc2622d497cbc4b5d426c6ffac6aa2d50ceee06dcfbed2167e",
     "legs.py": "ef44764e891a359be40718e4d1536c39f8a9abec73f7f8c1a0bf0225a29510d8",
     "market_time.py": "cb22d008dec6f2d5462ae9ad25e74b4d6c2bdc1f3cdb2156100b0caefd165675",
-    "parameters.json": "126deb01b7e0dccc55a217c344b95f30588eb912212dd6ef9dc8b6b5d8dd2cc4",
+    "parameters.json": "6603192aabb7dc539d0cd18b941cdaf104cbbf593f5cdb3b40b78a0ff5d99cfe",
     "path_labels.py": "036e5a8f2f8f5438d5b5a623f9026156b5eee6a6b42d588d87e8b0567cfbffa1",
     "scanner_reader.py": "555929cd32f9966d2f2a208a0fa64c6b12a49a59ff9117392f895a86cfc6d694",
     "self_audit.py": "0746a0b793dc84b16e9c07479386b7c57d9992894c869b0b9a2f75bf8098b610",
-    "skew_tracker.py": "25eebfd5cef0a8d7e52950c34459d78092054c8daefd98af55a326048ae7c647"
+    "skew_tracker.py": "6ed5cb9ad1d15ba980bb784ba3541fa996604f076eb30d6cd25542a739ecfb91"
   },
-  "fingerprint": "f3fdd531967ca8d9ab017be558cb23486054cc6e630aae6412f701720d21c713",
+  "fingerprint": "0afdaeea8002ba0625b9460171415b1fdc529e20e2d5021277e794b0ad9f00b2",
   "frozen_on": "2026-10-04",
   "hypotheses": [
     {

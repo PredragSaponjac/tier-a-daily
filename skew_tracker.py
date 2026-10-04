@@ -1926,20 +1926,37 @@ def compute_divergence(history: pd.DataFrame, lookback_sessions: int = None) -> 
     if len(history) < 2:
         return None
 
-    from market_time import sessions_between
+    from market_time import sessions_between, is_session
     window = SKEW_LOOKBACK_DAYS if lookback_sessions is None else int(lookback_sessions)
     if window < 1:
         raise ValueError('lookback_sessions must be positive')
-    history = history.sort_values('date').drop_duplicates('date', keep='last').tail(window + 1)
-    if len(history) != window + 1:
+    history = history.sort_values('date').drop_duplicates('date', keep='last')
+    # Rows stamped on non-session dates (the pre-2026-10 scanner had no holiday guard and
+    # wrote rows on e.g. Labor Day 9/07) are never screen endpoints.
+    history = history[[is_session(pd.Timestamp(x).date()) for x in history['date']]]
+    if len(history) < 2:
         return None
-    observed = [pd.Timestamp(x).date() for x in history['date']]
-    if observed != sessions_between(observed[0], observed[-1]):
-        return None  # missing sessions may not silently lengthen the screen
-    current, oldest = history.iloc[-1], history.iloc[0]
+    current = history.iloc[-1]
+    today = pd.Timestamp(current['date']).date()
+    # ENDPOINT RULE (review 2026-10-04): the change is measured against the session EXACTLY
+    # `window` sessions earlier on the exchange calendar. Only the two endpoints enter the
+    # computation, so a missing session BETWEEN them cannot distort it, and a missing
+    # ENDPOINT gives no signal: the window is never silently lengthened. The first v2 draft
+    # required all `window`+1 sessions present, which blacked out every ticker for ~10
+    # sessions after any missed scan day (9/28 -> no candidates 10/05-10/09) and for
+    # weeks around old holiday rows (0 of 664 tickers passed on 8/14, 8/31, 9/15, 10/02).
+    span = sessions_between(today - dt.timedelta(days=window * 2 + 14), today)
+    if len(span) < window + 1 or span[-1] != today:
+        return None
+    then = span[-(window + 1)]
+    match = history[[pd.Timestamp(x).date() == then for x in history['date']]]
+    if match.empty:
+        return None
+    oldest = match.iloc[-1]
     required = ('spot_close', 'skew', 'atm_iv', 'hv_10d')
     try:
-        endpoints = history[['spot_close', 'skew']].to_numpy(dtype=float)
+        endpoints = np.array([[oldest['spot_close'], oldest['skew']],
+                              [current['spot_close'], current['skew']]], dtype=float)
         valid = (np.isfinite(endpoints).all() and (endpoints[:, 0] > 0).all()
                  and all(np.isfinite(float(current[k])) for k in required))
     except (TypeError, ValueError):
@@ -2289,7 +2306,9 @@ def run_scan(tickers: List[str], lookback: int = SKEW_LOOKBACK_DAYS, use_ai: boo
     wall_results = {}
     candidate_count = 0
     for ticker in tickers:
-        history = get_history(conn, ticker, days=lookback + 1)
+        # lookback + 6 rows: enough that the endpoint exactly `lookback` sessions back is
+        # still fetched when a session is missing or an old holiday row sits in between.
+        history = get_history(conn, ticker, days=lookback + 6)
 
         div = None
         walls_for_ticker = None

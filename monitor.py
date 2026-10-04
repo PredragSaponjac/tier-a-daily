@@ -212,9 +212,16 @@ def main():
         resumed = {(rec['ticker'], rec.get('signal_date', rec['entry_date']))
                    for rec in PT.pending_publications()}
         publish_pending(dry_run=args.dry_run)
+        errors = []
         for pos in PT.list_open():
-            result = check_position(pos, dry_run=args.dry_run)
-            print(f"[{pos['ticker']}] {'closed' if result else 'open or pending entry'}")
+            # One holding's bad or incomplete price feed must not stop the others from being
+            # checked (review 2026-10-04). The run still FAILS at the end, naming it.
+            try:
+                result = check_position(pos, dry_run=args.dry_run)
+                print(f"[{pos['ticker']}] {'closed' if result else 'open or pending entry'}")
+            except Exception as exc:
+                errors.append(f"{pos['ticker']}: {type(exc).__name__}: {exc}")
+                print(f"::error::[{pos['ticker']}] not checked this run: {type(exc).__name__}: {exc}")
         if not args.dry_run:
             checkpoint()
         # Definite rejections get at most one retry per record in this run.
@@ -225,6 +232,8 @@ def main():
                 raise SystemExit('Sheet synchronization incomplete; durable portfolio remains available')
             if PT.unresolved_publications():
                 raise SystemExit('Close delivery incomplete; reconcile the durable outbox')
+        if errors:
+            raise SystemExit('Position check failed for: ' + '; '.join(errors))
 
 
 if __name__ == '__main__':

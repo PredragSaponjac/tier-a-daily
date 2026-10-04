@@ -49,6 +49,24 @@ class ExecutionTests(unittest.TestCase):
     def provider(self, frame):
         return patch.object(monitor.yf.Ticker, 'history', return_value=frame)
 
+    def test_one_bad_feed_does_not_stop_other_positions(self):
+        """Review 2026-10-04: an exception for one holding used to abort the whole run."""
+        self.position(ticker='BAD')
+        self.position(ticker='GOOD')
+        checked = []
+
+        def fake_check(pos, dry_run=False, asof=None):
+            checked.append(pos['ticker'])
+            if pos['ticker'] == 'BAD':
+                raise ValueError('Completed-session feed is incomplete')
+            return None
+        with patch.object(monitor, 'check_position', side_effect=fake_check), \
+                patch.object(monitor, 'publish_pending', return_value=0), \
+                patch('sys.argv', ['monitor.py', '--dry-run']):
+            with self.assertRaises(SystemExit):
+                monitor.main()
+        self.assertEqual(checked, ['BAD', 'GOOD'])
+
     def test_evolving_daily_bar_never_closes_before_session_completion(self):
         p = self.position()
         prefix = bars([[100, 112, 100, 111, 0, 0]])
@@ -260,7 +278,8 @@ class ExecutionTests(unittest.TestCase):
              patch.object(monitor.x_post, 'already_posted', return_value=None), \
              patch.object(monitor.x_post, 'post_to_x_status', return_value=('posted', 'x-id')) as twitter, \
              patch.object(monitor, 'check_position', side_effect=ValueError('unrelated feed incomplete')):
-            with self.assertRaises(ValueError):
+            # The run still fails loudly (SystemExit naming the holding), after recovery.
+            with self.assertRaises(SystemExit):
                 monitor.main()
         self.assertEqual(telegram.call_count, 1)
         self.assertEqual(twitter.call_count, 1)

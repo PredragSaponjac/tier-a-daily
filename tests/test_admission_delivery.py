@@ -217,7 +217,17 @@ class GateAndCalendarTests(unittest.TestCase):
         five = skew_tracker.compute_divergence(history,lookback_sessions=5)
         self.assertEqual(five['spot_return_pct'],0)
         self.assertEqual(five['skew_change'],0)
-        self.assertIsNone(skew_tracker.compute_divergence(history.drop(index=3)))
+        # Endpoint rule: a session missing BETWEEN the endpoints leaves the nine-session
+        # change unchanged (only the endpoints enter the computation) ...
+        gap = skew_tracker.compute_divergence(history.drop(index=3))
+        self.assertEqual((gap['skew_change'], gap['spot_return_pct'], gap['window_sessions']),
+                         (actual['skew_change'], actual['spot_return_pct'], 9))
+        # ... a missing ENDPOINT gives no signal: the window is never silently lengthened ...
+        self.assertIsNone(skew_tracker.compute_divergence(history.drop(index=0)))
+        # ... and a row stamped on a non-session date (old holiday scans) is ignored.
+        holiday = pd.concat([history, pd.DataFrame({'date': [pd.Timestamp('2026-09-20')], 'spot_close': [1.0],
+                                                    'skew': [50.0], 'atm_iv': [100.], 'hv_10d': [100.]})])
+        self.assertEqual(skew_tracker.compute_divergence(holiday)['skew_change'], actual['skew_change'])
         history.loc[0, 'skew'] = float('nan')
         self.assertIsNone(skew_tracker.compute_divergence(history))
 

@@ -4,7 +4,7 @@
   "regime_note": "Prospective v2 from 2026-10-05: nine-session screen with session-consistent sigma, required unknown-data blocks, next regular-session open paper entries, completed-session daily barrier outcomes. Historical v1 evidence is descriptive and is not relabeled as v2 performance.",
   "entry": {
     "min_filter_score": 3,
-    "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate â€” best tradeable candidate fires even at UW<3.",
+    "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate — best tradeable candidate fires even at UW<3.",
     "execution_model": "next_regular_open"
   },
   "selection": {
@@ -15,7 +15,7 @@
     "take_all_qualified": true,
     "max_concurrent": 6,
     "take_all_comment": "Preserved take-all policy: admit eligible names in rank order up to six reserved/open slots. Ranking and diversification benefit are unproven. Paper allocation is 1/6 per slot; pending entries reserve capacity.",
-    "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust â€” NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
+    "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust — NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
     "comment": "At least one structural/volatility leg required; unknown required data prevents admission."
   },
   "exits": {
