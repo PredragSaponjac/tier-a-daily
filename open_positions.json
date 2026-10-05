@@ -19,7 +19,29 @@
       "dp_blocks_10d": null,
       "dp_cumul_10d_M": null,
       "parameters_version": "1.1.0",
-      "added_at": "2026-09-29T20:32:05.216898Z"
+      "added_at": "2026-09-29T20:32:05.216898Z",
+      "original_entry_price": 4.43,
+      "original_levels": {
+        "T1": 4.873,
+        "T2": 4.9173,
+        "T3": 5.316,
+        "STOP": 4.1198999999999995
+      },
+      "split_factor": 1.0,
+      "quantity_factor": 1.0,
+      "corporate_actions": [],
+      "price_basis": "split_normalized_price_only",
+      "price_basis_asof": "2026-10-05T21:41:08.765157+00:00",
+      "excursion_bounds": {
+        "mae_pct_min": -2.934532940522272,
+        "mae_pct_max": -2.934532940522272,
+        "mfe_pct_min": 6.32054262182784,
+        "mfe_pct_max": 6.32054262182784,
+        "exact": true,
+        "method": "completed_daily_next_open_v1"
+      },
+      "execution_method": "completed_daily_next_open_v1",
+      "observations_asof": "2026-10-05T21:41:08.766701Z"
     }
   ]
 }
