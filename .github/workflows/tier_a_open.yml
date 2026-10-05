@@ -1,0 +1,74 @@
+name: Tier A Daily - entry announcement at the open
+# v2 paper entries fill at the regular-session OPEN the morning after a signal. Shortly
+# after it, post the exact entry, target and stop so a follower can set ONE bracket order
+# (user decision 2026-10-04). Announces only: the official record is still made after the
+# close from completed daily bars by the monitor, which also catches up anything missed here.
+# 10:20 is a backup for a delayed 09:45 run or a late opening print; it posts nothing twice.
+on:
+  schedule:
+    - cron: '45 9 * * 1-5'
+      timezone: America/New_York
+    - cron: '20 10 * * 1-5'
+      timezone: America/New_York
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Practice run: print what would be posted; send nothing, save nothing'
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: tier-a-portfolio-writer
+      cancel-in-progress: false
+      queue: max
+    env:
+      DURABLE_STATE_CHECKPOINT: ${{ inputs.dry_run == true && 'local' || 'git' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Refresh portfolio state (fail closed)
+        run: git pull --ff-only origin "$GITHUB_REF_NAME"
+      - name: Announce filled paper entries
+        id: announce
+        env:
+          DRY: ${{ inputs.dry_run }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          ENABLE_X_AUTOPOST: '1'
+        run: |
+          if [ "$DRY" = "true" ]; then
+            python entry_announce.py --dry-run
+          else
+            python entry_announce.py
+          fi
+      - name: Persist announcement state even on delivery failure
+        if: always() && inputs.dry_run != true && steps.announce.outcome != 'skipped'
+        run: python state_lock.py checkpoint
+      - name: Preserve failed announcement evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: entry-announce-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            open_positions.json
+            x_drafts/
+            x_posted.log
+          retention-days: 14

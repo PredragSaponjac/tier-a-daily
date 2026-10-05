@@ -11,8 +11,17 @@ def _result(status, reason, **data):
     return {'pass': status == 'pass', 'status': status, 'reason': reason, **data}
 
 
-def check_earnings(ticker, entry_date, within_days=None):
-    """Require a future earnings date; buffer is explicitly CALENDAR days."""
+def check_earnings(ticker, entry_date, within_days=None, sector=None):
+    """Require a future earnings date; buffer is explicitly CALENDAR days.
+
+    Funds are the exception (review 2026-10-04): an ETF never reports earnings, so "no
+    earnings date" is not missing data for it, and Yahoo returns no calendar at all for
+    funds (SMH and IBIT both came back as HTTP errors). Without this every ETF candidate
+    was blocked forever as 'unknown'. The scanner tags funds with sector 'ETF'.
+    """
+    if sector == 'ETF':
+        return _result('pass', 'ETF/fund: no earnings to report (not applicable)',
+                       next_earnings=None, applicable=False)
     within_days = P.earnings_buffer_days() if within_days is None else within_days
     try:
         cal = yf.Ticker(ticker).calendar
@@ -61,7 +70,7 @@ def check_liquidity(ticker, min_oi=None):
 
 def run_vetoes(candidate):
     entry = next_session(candidate['scan_date']).isoformat()
-    details = {'earnings': check_earnings(candidate['ticker'], entry),
+    details = {'earnings': check_earnings(candidate['ticker'], entry, sector=candidate.get('sector')),
                'liquidity': check_liquidity(candidate['ticker'])}
     failed = [x['reason'] for x in details.values() if not x['pass']]
     return {'pass': not failed, 'status': 'unknown' if any(x['status'] == 'unknown' for x in details.values())

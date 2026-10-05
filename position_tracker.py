@@ -436,6 +436,8 @@ def _append_closed_trade(closed: dict, row: dict, days_to_exit: int, exit_note: 
         'trade_id': closed.get('trade_id', f"{row['ticker']}:{row['entry_date']}"),
         'signal_date': closed.get('signal_date', row['entry_date']),
         'entry_policy': closed.get('entry_policy', 'legacy_close'),
+        # the morning entry post (prices announced, channel receipts) stays on the record
+        'entry_announcement': closed.get('entry_announcement'),
         'execution_method': closed.get('execution_method', 'legacy_unknown'),
         'excursion_bounds': closed.get('excursion_bounds'),
         'price_basis': closed.get('price_basis', 'legacy_unverified'),

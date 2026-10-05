@@ -88,9 +88,14 @@ jobs:
           else
             rc=$?; tail -60 skew_manual_pm.log; exit "$rc"
           fi
+      # Research labels never decide today's signal. A label failure shows as a failed
+      # step, but must not fail this job: the PM completion marker requires this job to
+      # succeed, so one bad ticker used to mean no marker, a pointless 17:15 rerun and a
+      # nightly heartbeat alarm (review 2026-10-04).
       - name: Run label_candidates.py
         id: label
         if: steps.scan.outcome == 'success'
+        continue-on-error: true
         run: python label_candidates.py
       # Always preserve a successful scan even if a later research stage fails.
       - name: Store database state

@@ -77,11 +77,21 @@ def forward_labels(hist, signal_date):
     return rec
 
 
+PAUSE_SECONDS = 0.2          # between tickers: Yahoo rate-limits bursts (legacy paused 0.3 s)
+
+
 def update_forward_returns(db_path: str) -> int:
     """Write ONLY version-2 prospective benchmark rows; preserve legacy labels.
 
-    Partial provider failures roll back this transaction and fail the workflow.
-    Forward horizons are calendar days and include only completed regular sessions.
+    PER-TICKER ISOLATION (review 2026-10-04). Each ticker's rows are independent and are
+    computed in full before any is written, so a provider failure skips only that ticker:
+    it keeps its NULL labels and is retried next run, and it is named in a warning. This
+    used to roll back EVERY ticker's labels and fail the step whenever ONE ticker failed —
+    and recent runs had two failing tickers every day, which in v2 would have blocked the
+    PM completion marker and raised the heartbeat alarm nightly. Residuals are recomputed
+    from each date's complete peer group on every run, so late arrivals repair their peers.
+    Only a systemic failure (more than half the tickers) fails the step, after keeping the
+    rows that did succeed. Forward horizons are calendar days, completed sessions only.
     """
     import path_labels as PL
     from market_time import last_completed_session
@@ -108,21 +118,30 @@ def update_forward_returns(db_path: str) -> int:
                     raise PL.LabelDataError('empty completed-session history')
                 if hist.iloc[-1].date != asof.isoformat():
                     raise PL.LabelDataError(f'provider history stale: expected {asof}, got {hist.iloc[-1].date}')
-                for cand in candidates:
-                    rec = {**cand, **forward_labels(hist, cand['scan_date'])}
-                    cols = list(rec)
-                    conn.execute(f'INSERT INTO {FORWARD_TABLE} (' + ','.join(cols) + ') VALUES ('
-                        + ','.join('?' for _ in cols) + ') ON CONFLICT(id) DO UPDATE SET '
-                        + ','.join(f'{c}=excluded.{c}' for c in cols if c != 'id'), list(rec.values()))
-                    updated += 1
+                # Compute every row for this ticker BEFORE writing any, so a failure on a
+                # later row cannot leave this ticker half-labelled.
+                recs = [{**cand, **forward_labels(hist, cand['scan_date'])} for cand in candidates]
             except Exception as e:
                 errors.append(f'{ticker}: {type(e).__name__}: {e}')
-        if errors:
-            conn.rollback()
-            raise PL.LabelDataError('forward labeling incomplete; transaction rolled back: ' + '; '.join(errors[:20]))
+                time.sleep(PAUSE_SECONDS)
+                continue
+            for rec in recs:
+                cols = list(rec)
+                conn.execute(f'INSERT INTO {FORWARD_TABLE} (' + ','.join(cols) + ') VALUES ('
+                    + ','.join('?' for _ in cols) + ') ON CONFLICT(id) DO UPDATE SET '
+                    + ','.join(f'{c}=excluded.{c}' for c in cols if c != 'id'), list(rec.values()))
+                updated += 1
+            time.sleep(PAUSE_SECONDS)
         _compute_residuals(conn, table=FORWARD_TABLE)
         conn.commit()
-        print(f'[forward] v{FORWARD_VERSION}: wrote {updated} prospective calendar-day benchmark rows; legacy labels preserved')
+        print(f'[forward] v{FORWARD_VERSION}: wrote {updated} prospective calendar-day benchmark rows '
+              f'for {len(groups) - len(errors)} of {len(groups)} tickers; legacy labels preserved')
+        if errors:
+            print(f'::warning::[forward] {len(errors)} ticker(s) not labelled this run; their rows stay '
+                  f'unlabelled and are retried next run: ' + '; '.join(errors[:10]))
+        if groups and len(errors) > len(groups) / 2:
+            raise PL.LabelDataError(f'systemic provider failure: {len(errors)} of {len(groups)} tickers '
+                                    f'failed (the {updated} rows that succeeded were kept)')
         return updated
     finally:
         conn.close()

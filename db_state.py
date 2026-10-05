@@ -363,7 +363,26 @@ def health(marker_path='last_scan_pm.json', now=None) -> list[str]:
                  and (row['publication'].get('telegram') not in ('sent', 'n/a')
                       or row['publication'].get('x') not in ('posted', 'draft', 'n/a')) for row in rows):
             problems.append('one or more close announcements require delivery or reconciliation')
+    # Morning entry announcements (entry_announce.py, 2026-10-04): by 21:30 New York time
+    # every entry that filled today must be announced on both channels, or flagged. A
+    # filled next-open entry with NO announcement record (every run failed) counts too.
+    opened = Path('open_positions.json')
+    if opened.exists():
+        state = _read_json(opened)
+        positions = state.get('positions') if isinstance(state, dict) else None
+        if not isinstance(positions, list):
+            problems.append('open-position record is unreadable')
+        elif any(_entry_unannounced(p) for p in positions if isinstance(p, dict)):
+            problems.append('one or more entry announcements were not delivered or need reconciliation')
     return problems
+
+
+def _entry_unannounced(pos) -> bool:
+    ann = pos.get('entry_announcement')
+    if isinstance(ann, dict):
+        return ann.get('telegram') != 'sent' or ann.get('x') not in ('posted', 'draft')
+    # Legacy positions and entries still waiting for their open are never announced.
+    return pos.get('entry_policy') == 'next_regular_open' and pos.get('status') == 'OPEN'
 
 
 def main(argv) -> int:

@@ -174,6 +174,21 @@ class GateAndCalendarTests(unittest.TestCase):
         self.assertFalse(result['pass'])
         self.assertEqual(result['status'], 'unknown')
 
+    def test_etf_has_no_earnings_risk_and_is_not_blocked(self):
+        """Review 2026-10-04: funds report no earnings; 'no date' is not missing data."""
+        with patch.object(vetoes.yf, 'Ticker', side_effect=AssertionError('no lookup needed')):
+            result = vetoes.check_earnings('SMH', '2026-10-06', sector='ETF')
+        self.assertTrue(result['pass'])
+        self.assertFalse(result['applicable'])
+        # a STOCK with no earnings date is still blocked as unknown
+        with patch.object(vetoes.yf, 'Ticker', return_value=SimpleNamespace(calendar={})):
+            self.assertEqual(vetoes.check_earnings('TEST', '2026-10-06', sector='Technology')['status'], 'unknown')
+        # the scanner's sector tag must actually reach the check through run_vetoes
+        with patch.object(vetoes.yf, 'Ticker', side_effect=AssertionError('no lookup needed')), \
+                patch.object(vetoes, 'check_liquidity', return_value=vetoes._result('pass', 'liquid')):
+            gate = vetoes.run_vetoes({'ticker': 'SMH', 'scan_date': '2026-10-02', 'sector': 'ETF'})
+        self.assertEqual((gate['pass'], gate['status']), (True, 'pass'))
+
     def test_partial_options_data_does_not_pass_liquidity(self):
         frame = pd.DataFrame({'openInterest':[1000., None]})
         ticker = SimpleNamespace(options=['2026-10-09'], option_chain=lambda _:SimpleNamespace(calls=frame,puts=frame))

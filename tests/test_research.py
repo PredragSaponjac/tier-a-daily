@@ -297,28 +297,51 @@ class ForwardTests(ResearchTestCase):
         self.assertEqual(con.total_changes,before)
         con.close()
 
-    def test_partial_forward_download_rolls_back_and_preserves_legacy(self):
+    def _forward_db(self, tmp):
+        db=str(Path(tmp)/'probe.db');con=sqlite3.connect(db)
+        con.execute('CREATE TABLE candidate_log(id INTEGER PRIMARY KEY,ticker TEXT,scan_date TEXT,sector TEXT,industry TEXT,fwd_5d_return REAL)')
+        con.executemany('INSERT INTO candidate_log VALUES(?,?,?,?,?,?)',[(1,'OLD','2026-09-01','Tech','Software',6514.),
+          (2,'X','2026-10-05','Tech','Software',None),(3,'Y','2026-10-05','Tech','Software',None)])
+        LC.ensure_forward_schema(con);con.commit();con.close()
+        raw=bars(3)
+        anchor=raw.iloc[:1].copy();anchor['date']='2026-10-05'
+        raw=pd.concat([anchor,raw],ignore_index=True)
+        raw['Stock Splits']=0.;raw['Dividends']=0.
+        raw.index=pd.to_datetime(raw.date);raw=raw.drop(columns='date')
+        return db, raw
+
+    def _provider(self, raw, good):
+        def history(ticker):
+            class Ticker:
+                def history(self,**kwargs):
+                    if not (kwargs['auto_adjust'] is False and kwargs['actions'] is True):
+                        raise AssertionError('adjusted provider request')
+                    return raw if ticker in good else pd.DataFrame()
+            return Ticker()
+        return history
+
+    def test_partial_forward_download_keeps_good_tickers_and_preserves_legacy(self):
+        """Review 2026-10-04: one failing ticker no longer rolls back every other ticker."""
         with tempfile.TemporaryDirectory() as tmp:
-            db=str(Path(tmp)/'probe.db');con=sqlite3.connect(db)
-            con.execute('CREATE TABLE candidate_log(id INTEGER PRIMARY KEY,ticker TEXT,scan_date TEXT,sector TEXT,industry TEXT,fwd_5d_return REAL)')
-            con.executemany('INSERT INTO candidate_log VALUES(?,?,?,?,?,?)',[(1,'OLD','2026-09-01','Tech','Software',6514.),
-              (2,'X','2026-10-05','Tech','Software',None),(3,'Y','2026-10-05','Tech','Software',None)])
-            LC.ensure_forward_schema(con);con.commit();con.close()
-            raw=bars(3)
-            anchor=raw.iloc[:1].copy();anchor['date']='2026-10-05'
-            raw=pd.concat([anchor,raw],ignore_index=True)
-            raw['Stock Splits']=0.;raw['Dividends']=0.
-            raw.index=pd.to_datetime(raw.date);raw=raw.drop(columns='date')
-            def history(ticker):
-                class Ticker:
-                    def history(self,**kwargs):
-                        if not (kwargs['auto_adjust'] is False and kwargs['actions'] is True):
-                            raise AssertionError('adjusted provider request')
-                        return raw if ticker=='X' else pd.DataFrame()
-                return Ticker()
-            # X writes first, then Y fails: none of X's partial transaction may survive.
-            with patch.object(LC.yf,'Ticker',side_effect=history),patch.object(MT,'last_completed_session',return_value=dt.date(2026,10,8)):
-                with self.assertRaises(PL.LabelDataError):LC.update_forward_returns(db)
+            db, raw = self._forward_db(tmp)
+            with patch.object(LC.yf,'Ticker',side_effect=self._provider(raw,{'X'})), \
+                 patch.object(LC,'PAUSE_SECONDS',0), \
+                 patch.object(MT,'last_completed_session',return_value=dt.date(2026,10,8)):
+                with redirect_stdout(io.StringIO()):
+                    LC.update_forward_returns(db)            # no exception: Y is skipped, named
+            con=sqlite3.connect(db)
+            self.assertEqual([r[0] for r in con.execute('SELECT id FROM candidate_forward_v2')],[2])   # X kept, Y retried later
+            self.assertEqual(con.execute('SELECT fwd_5d_return FROM candidate_log WHERE id=1').fetchone()[0],6514.)
+            con.close()
+
+    def test_systemic_forward_failure_fails_loudly_and_preserves_legacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db, raw = self._forward_db(tmp)
+            with patch.object(LC.yf,'Ticker',side_effect=self._provider(raw,set())), \
+                 patch.object(LC,'PAUSE_SECONDS',0), \
+                 patch.object(MT,'last_completed_session',return_value=dt.date(2026,10,8)):
+                with redirect_stdout(io.StringIO()):
+                    with self.assertRaises(PL.LabelDataError):LC.update_forward_returns(db)
             con=sqlite3.connect(db)
             self.assertEqual(con.execute('SELECT COUNT(*) FROM candidate_forward_v2').fetchone()[0],0)
             self.assertEqual(con.execute('SELECT fwd_5d_return FROM candidate_log WHERE id=1').fetchone()[0],6514.)

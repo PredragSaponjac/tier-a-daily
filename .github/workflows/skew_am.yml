@@ -59,8 +59,11 @@ jobs:
           else
             rc=$?; tail -60 skew_manual_am.log; exit "$rc"
           fi
+      # Research labels are not an input to any decision: a failure is visible but does
+      # not block storing the scan or the AM marker (review 2026-10-04).
       - name: Run label_candidates.py
         if: steps.scan.outcome == 'success'
+        continue-on-error: true
         run: python label_candidates.py
       - name: Store database state
         id: store

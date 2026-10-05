@@ -71,7 +71,13 @@ def validate():
         assert signal['concurrency']['group'] == 'tier-a-portfolio-writer'
         mj = next(iter(monitor['jobs'].values()))
         assert mj['concurrency']['group'] == 'tier-a-portfolio-writer'
-        for job in (prep,signal,mj):
+        # morning entry announcement (2026-10-04): same single portfolio-writer queue,
+        # durable git checkpoints when live, practice mode by default when dispatched
+        oj = flows['tier_a_open']['jobs']['announce']
+        assert oj['concurrency']['group'] == 'tier-a-portfolio-writer'
+        assert "'git'" in oj['env']['DURABLE_STATE_CHECKPOINT']
+        assert flows['tier_a_open']['on']['workflow_dispatch']['inputs']['dry_run']['default'] == 'true'
+        for job in (prep,signal,mj,oj):
             assert job['concurrency']['cancel-in-progress'] == 'false'
             assert job['concurrency']['queue'] == 'max'
         assert 'git' in signal['env']['DURABLE_STATE_CHECKPOINT']

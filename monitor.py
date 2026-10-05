@@ -182,6 +182,13 @@ def check_position(pos, dry_run=False, asof=None):
                    'original_entry_price': opening, 'original_levels': levels, **levels}
         else:
             pos = PT.activate_position(tk, key, first, opening)
+            # The morning post announced this same opening print (entry_announce.py). The
+            # official entry is this completed-bar value; say so loudly if Yahoo ever differs.
+            announced = (pos.get('entry_announcement') or {}).get('open')
+            if announced and abs(float(announced) / opening - 1) > 0.001:
+                note = f'announced open {float(announced):.4f} differs from official open {opening:.4f}'
+                print(f'::warning::[{tk}] {note}')
+                pos = PT.update_position(tk, key, entry_note=note)
     pos = _basis(pos, actions_frame)
     if not dry_run:
         pos = PT.update_position(tk, key, **{k: v for k, v in pos.items() if k not in ('ticker', 'signal_date')})
@@ -224,6 +231,15 @@ def main():
                 print(f"::error::[{pos['ticker']}] not checked this run: {type(exc).__name__}: {exc}")
         if not args.dry_run:
             checkpoint()
+        # Catch up any entry the morning announcement runs could not post (no opening print
+        # yet, a GitHub outage): now announced from the official completed-bar open. Runs
+        # BEFORE new closes are published, so an entry is never announced after its close.
+        try:
+            import entry_announce
+            entry_announce.announce_entries(dry_run=args.dry_run)
+        except Exception as exc:
+            errors.append(f'entry announcements: {type(exc).__name__}: {exc}')
+            print(f'::error::entry announcement catch-up failed: {type(exc).__name__}: {exc}')
         # Definite rejections get at most one retry per record in this run.
         publish_pending(dry_run=args.dry_run, exclude=resumed)
         if not args.dry_run:
