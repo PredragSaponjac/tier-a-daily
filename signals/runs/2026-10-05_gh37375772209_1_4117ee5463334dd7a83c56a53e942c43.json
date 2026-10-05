@@ -1,0 +1,252 @@
+{
+  "scan_date": "2026-10-05",
+  "run_at": "2026-10-05T22:06:49.668595Z",
+  "run_id": "gh37375772209_1_4117ee5463334dd7a83c56a53e942c43",
+  "parameters_version": "2.0.0",
+  "parameters_sha256": "6603192aabb7dc539d0cd18b941cdaf104cbbf593f5cdb3b40b78a0ff5d99cfe",
+  "parameters_snapshot": {
+    "version": "2.0.0",
+    "last_updated": "2026-10-04",
+    "regime_note": "Prospective v2 from 2026-10-05: nine-session screen with session-consistent sigma, required unknown-data blocks, next regular-session open paper entries, completed-session daily barrier outcomes. Historical v1 evidence is descriptive and is not relabeled as v2 performance.",
+    "entry": {
+      "min_filter_score": 3,
+      "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate \u2014 best tradeable candidate fires even at UW<3.",
+      "execution_model": "next_regular_open"
+    },
+    "selection": {
+      "require_strong_leg": true,
+      "strong_skew_max": -7.0,
+      "strong_vol_cushion_min": 3.0,
+      "skew_noise_std_max": 20.0,
+      "take_all_qualified": true,
+      "max_concurrent": 6,
+      "take_all_comment": "Preserved take-all policy: admit eligible names in rank order up to six reserved/open slots. Ranking and diversification benefit are unproven. Paper allocation is 1/6 per slot; pending entries reserve capacity.",
+      "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust \u2014 NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
+      "comment": "At least one structural/volatility leg required; unknown required data prevents admission."
+    },
+    "exits": {
+      "tp1_pct": 10.0,
+      "tp2_pct": 11.0,
+      "tp3_pct": 20.0,
+      "stop_pct": -7.0,
+      "time_stop_days": null,
+      "scale_at_tp1_pct": 100,
+      "scale_at_tp2_pct": 0,
+      "scale_at_tp3_pct": 0,
+      "bot_auto_close_at": "tp1",
+      "bot_auto_close_at_comment": "Entire paper position resolves at TP1 or stop, without timeout; target gaps book target, stop gaps book opening price; ambiguous daily dual touches book stop. T2/T3 are separate hypothetical shadows.",
+      "execution_model": "completed_regular_session_daily_conservative"
+    },
+    "vetoes": {
+      "earnings_within_days": 14,
+      "min_total_oi": 500,
+      "unknown_policy": "block",
+      "earnings_buffer_basis": "calendar_days"
+    },
+    "filter_thresholds": {
+      "ncp_z_threshold": -0.5,
+      "coi_pct_threshold": -5.0,
+      "poi_pct_threshold": 0.0,
+      "dp_blocks_threshold": 30
+    },
+    "uw_pulls": {
+      "options_volume_days_back": 20,
+      "options_volume_days_back_comment": "Only need ~15 days for z-score + OI evolution. 20 = small buffer. Override via CLI --vol-days for backtests on older dates.",
+      "darkpool_days_back": 10,
+      "darkpool_days_back_comment": "10 trading days before entry day, used for cumulative block count + slope."
+    },
+    "change_log": [
+      {
+        "date": "2026-05-27",
+        "change": "initial parameters",
+        "rationale": "research_uw_picker_v1 baseline, no prospective data yet"
+      },
+      {
+        "date": "2026-06-01",
+        "change": "min_filter_score 1 -> 3 (exceptional-only)",
+        "rationale": "1 was a test/loose setting left in by mistake; it alerted INTU on only 1/4 UW conditions (flow contradicting the thesis) and broadcast it to X with the full Bonferroni claim. 3 requires >=3 of 4 UW conditions to confirm, matching the research edge. Only exceptional, flow-confirmed setups now fire."
+      },
+      {
+        "date": "2026-09-02",
+        "change": "take_all_qualified true, max_concurrent 6 (version 1.1.0)",
+        "rationale": "The one-per-day pick has no measured skill (tiebreaker spearman +0.035; skipped > picked on 8/17 and again on 9/02 clean: PICKED R +0.023 vs SKIPPED +0.518, p=0.908; no entry metric separates winners from losers on 14 live or 43 historical). The edge is the screen, not the choosing, so discarding ~60% of qualified names was throwing away return. Take-all at equal weight looked better on the same small cohort (the '~16x Sharpe-ish' figure once quoted here is WITHDRAWN 2026-10-04: a ratio of small-sample estimates with a near-zero denominator, not a portfolio Sharpe). Gates, exits, thresholds unchanged. Cap 6 covers 94% of days (median 2 open). Position size = 1/6 of book. Also triples the learning sample."
+      },
+      {
+        "date": "2026-10-04",
+        "change": "v2 execution/data/inference contract",
+        "rationale": "Independent audit remediation, authorized by user. Separate prospective cohort; no profitability or ranking-skill claim."
+      }
+    ],
+    "screen": {
+      "lookback_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "version": "nine-session-v2",
+      "legacy_column_alias": "skew_change_5d stores the named version's interval change; read window_sessions and screen_version."
+    }
+  },
+  "candidate_inputs": [
+    {
+      "ticker": "DNN",
+      "scan_date": "2026-10-05",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "quote_asof": null,
+      "observed_at": "2026-10-05T21:43:36.671583+00:00",
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "spot_close": 2.63,
+      "spot_return_pct": -10.24,
+      "skew_change_5d": -12.5,
+      "near_skew": -46.88,
+      "skew": -2.34,
+      "atm_iv": 55.47,
+      "near_dte": 4,
+      "put_wall_strike": 2.5,
+      "put_wall_oi_change": 0,
+      "sector": "Energy",
+      "industry": "Uranium",
+      "dte_earnings": 29,
+      "sector_iv_rank": 84.8,
+      "iv_hv_ratio": 1.28,
+      "filter": {
+        "score": null,
+        "conditions": {},
+        "raw": {},
+        "error": "no options-volume data"
+      },
+      "vetoes": {
+        "pass": true,
+        "status": "pass",
+        "reasons": [],
+        "details": {
+          "earnings": {
+            "pass": true,
+            "status": "pass",
+            "reason": "Earnings in 28 calendar days (buffer 14)",
+            "next_earnings": "2026-11-03"
+          },
+          "liquidity": {
+            "pass": true,
+            "status": "pass",
+            "reason": "Options OI 44351 (minimum 500)",
+            "total_oi": 44351
+          }
+        },
+        "expected_entry_session": "2026-10-06"
+      },
+      "legs": {
+        "cushion_pct": 5.200000000000005,
+        "daily_move_pct": 3.4942815529703055,
+        "vol_cushion": 1.4881456806420643,
+        "strong_skew": false,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "WEAK ON BOTH (skew -2 > -7, cushion 1.5x < 3x) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 7.257652092025967,
+        "skew_range": 19.53,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 7)"
+      },
+      "edge": {
+        "sector_iv_rank": 84.8,
+        "skew_slope": 2.1,
+        "iv_hv_ratio": 1.28,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 4.4,
+        "stop_atr": 1.59,
+        "tight_stop": false,
+        "atr2x_stop_pct": 8.8
+      }
+    }
+  ],
+  "execution_model": "next_regular_open_completed_daily_conservative_v2",
+  "data_generation": {
+    "name": "skewdb-20261005T220604Z-37375772209_1.db",
+    "sha256": "19e4e9c2f413f53979a31fbe9ba887da8a43873fdd9bfa37b3f690476ea9ee45",
+    "bytes": 135393280
+  },
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "taken_tickers": [],
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "context": {
+    "portfolio_before": [
+      "STLA"
+    ]
+  },
+  "candidates": [
+    {
+      "ticker": "DNN",
+      "spot_close": 2.63,
+      "spot_return_pct": -10.24,
+      "skew_change_5d": -12.5,
+      "near_skew": -46.88,
+      "near_dte": 4,
+      "put_wall_strike": 2.5,
+      "put_wall_oi_change": 0,
+      "sector": "Energy",
+      "industry": "Uranium",
+      "dte_earnings": 29,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": true,
+      "veto_reasons": [],
+      "veto_details": {
+        "earnings_next": "2026-11-03",
+        "liquidity_oi": 44351
+      },
+      "edge": {
+        "sector_iv_rank": 84.8,
+        "skew_slope": 2.1,
+        "iv_hv_ratio": 1.28,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 4.4,
+        "stop_atr": 1.59,
+        "tight_stop": false,
+        "atr2x_stop_pct": 8.8
+      },
+      "structural_skew": -2.34,
+      "atm_iv": 55.47,
+      "legs": {
+        "cushion_pct": 5.200000000000005,
+        "daily_move_pct": 3.4942815529703055,
+        "vol_cushion": 1.4881456806420643,
+        "strong_skew": false,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "WEAK ON BOTH (skew -2 > -7, cushion 1.5x < 3x) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 7.257652092025967,
+        "skew_range": 19.53,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 7)"
+      },
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "quote_asof": null,
+      "observed_at": "2026-10-05T21:43:36.671583+00:00",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9
+    }
+  ],
+  "delivery": {
+    "telegram": "pending",
+    "positions": "n/a",
+    "x": "n/a",
+    "sheet": "n/a",
+    "complete": false
+  },
+  "outbox": {
+    "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-10-05\n\n1 Tier A candidate(s) surfaced, but none qualified \u2014 each was either vetoed or WEAK ON BOTH legs (no deep skew capitulation AND no real vol-adjusted cushion).\nNO TRADE today \u2014 we don't force weak-on-both setups (the SYM/RGTI lesson).\nNext update: tomorrow after the 2:45 PM CT scan.\n\u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014\n\ud83d\udccb WATCH LIST \u2014 surfaced but NOT auto-traded (your call):\n(held back by the gate; flow can be right even when structure says wait \u2014 e.g. CAVA 6/8 +11%)\n  \u2022 DNN   UW 0/4 \u2606\u2606\u2606\u2606 | skew -2, cushion 1.5x | weak on both legs\n      \ud83d\udd2c edge: rank 84.8 | slope 2.1 | iv/hv 1.28 \u2192 combo \u2014 | stop 1.59xATR",
+    "x": null,
+    "positions": [],
+    "featured": null
+  }
+}
