@@ -98,11 +98,12 @@
   "context": {},
   "candidates": [],
   "delivery": {
-    "telegram": "pending",
+    "telegram": "inflight",
     "positions": "n/a",
     "x": "n/a",
     "sheet": "n/a",
-    "complete": false
+    "complete": false,
+    "telegram_attempts": 1
   },
   "outbox": {
     "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-10-07\n\nNo Tier A setups passed the screen today.\nNext update: tomorrow after the 2:45 PM CT scan.",
