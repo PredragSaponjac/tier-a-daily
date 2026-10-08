@@ -102,7 +102,7 @@
     "positions": "n/a",
     "x": "n/a",
     "sheet": "n/a",
-    "complete": false,
+    "complete": true,
     "telegram_attempts": 1,
     "telegram_id": 2345
   },
