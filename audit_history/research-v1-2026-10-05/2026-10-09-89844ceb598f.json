@@ -1,0 +1,162 @@
+{
+  "cluster_evidence": {
+    "method": "Connected components joining same scan date, same ticker, or overlapping observed holding windows; resample whole components. Descriptive sensitivity interval only.",
+    "n_censored": 0,
+    "n_clusters": 0,
+    "n_paths": 0,
+    "n_resolved": 0,
+    "promotion_evidence": false
+  },
+  "date": "2026-10-09",
+  "inference_status": {
+    "checkpoint_date": "2027-07-02",
+    "checkpoint_due": false,
+    "detail": "research-v1-2026-10-05: descriptive weekly report; one review on 2027-07-02; automatic READY disabled",
+    "fingerprint": "0afdaeea8002ba0625b9460171415b1fdc529e20e2d5021277e794b0ad9f00b2",
+    "ok": true,
+    "version": "research-v1-2026-10-05"
+  },
+  "label_coverage": {
+    "current": 0,
+    "detail": "labels v5: 0 of 0 qualifiers current, 50 historical row(s) preserved",
+    "expected": 0,
+    "invalid": [],
+    "legacy_rows_preserved": 50,
+    "missing": [],
+    "ok": true,
+    "stale_rows": 0,
+    "version": 5
+  },
+  "n_tests": 28,
+  "p_bar": 0.0017857142857142859,
+  "results": [
+    {
+      "detail": "no path labels yet",
+      "id": "H1_sector_iv_rank",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-07-28",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "H2_combo_rank_slope",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-07-28",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "H3_iv_hv_ratio",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-07-28",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "H5_green_by_day3",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "post_entry",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "Q2_stop_minus5_shadow",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "Q2_stop_minus6_shadow",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "Q1_t1_plus12_shadow",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "Q5_take_all_vs_one",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "portfolio",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "Q7_breadth_gate",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "Q8_atm_iv_speed",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "speed",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "S1_first_green_day1",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "post_entry",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "S2_fast_t1_entry_fingerprint",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "speed",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "S3_ticker_vix",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "S5_call_wall_oi_d2",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "post_entry",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "S6_nevergreen_exit_d2",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-26",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "no path labels yet",
+      "id": "S7_t1_plus8_shadow",
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-26",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    }
+  ]
+}
