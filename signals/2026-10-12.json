@@ -654,11 +654,12 @@
     }
   ],
   "delivery": {
-    "telegram": "pending",
+    "telegram": "inflight",
     "positions": "n/a",
     "x": "n/a",
     "sheet": "n/a",
-    "complete": false
+    "complete": false,
+    "telegram_attempts": 1
   },
   "outbox": {
     "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-10-12\n\n4 Tier A candidate(s) surfaced, but none qualified \u2014 each was either vetoed or WEAK ON BOTH legs (no deep skew capitulation AND no real vol-adjusted cushion).\nNO TRADE today \u2014 we don't force weak-on-both setups (the SYM/RGTI lesson).\nNext update: tomorrow after the 2:45 PM CT scan.",
