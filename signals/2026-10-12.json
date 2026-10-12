@@ -1,0 +1,669 @@
+{
+  "scan_date": "2026-10-12",
+  "run_at": "2026-10-12T21:16:17.619627Z",
+  "run_id": "gh38304032411_1_c2ce8638d1bd47e2adfd8484c43ee67d",
+  "parameters_version": "2.0.0",
+  "parameters_sha256": "6603192aabb7dc539d0cd18b941cdaf104cbbf593f5cdb3b40b78a0ff5d99cfe",
+  "parameters_snapshot": {
+    "version": "2.0.0",
+    "last_updated": "2026-10-04",
+    "regime_note": "Prospective v2 from 2026-10-05: nine-session screen with session-consistent sigma, required unknown-data blocks, next regular-session open paper entries, completed-session daily barrier outcomes. Historical v1 evidence is descriptive and is not relabeled as v2 performance.",
+    "entry": {
+      "min_filter_score": 3,
+      "min_filter_score_comment": "UW PRIORITY threshold. With require_strong_leg ON, this is a priority (UW>=3 picked first), NOT a hard gate \u2014 best tradeable candidate fires even at UW<3.",
+      "execution_model": "next_regular_open"
+    },
+    "selection": {
+      "require_strong_leg": true,
+      "strong_skew_max": -7.0,
+      "strong_vol_cushion_min": 3.0,
+      "skew_noise_std_max": 20.0,
+      "take_all_qualified": true,
+      "max_concurrent": 6,
+      "take_all_comment": "Preserved take-all policy: admit eligible names in rank order up to six reserved/open slots. Ranking and diversification benefit are unproven. Paper allocation is 1/6 per slot; pending entries reserve capacity.",
+      "skew_noise_comment": "DATA-QUALITY gate (earned by SMMT 6/9). If structural skew std-dev over the last 6 trading days > this, the options chain is too noisy/thin to trust \u2014 NO TRADE regardless of legs. Validated: all 8 real trades had skew_std <=12; SMMT-noise = 30.",
+      "comment": "At least one structural/volatility leg required; unknown required data prevents admission."
+    },
+    "exits": {
+      "tp1_pct": 10.0,
+      "tp2_pct": 11.0,
+      "tp3_pct": 20.0,
+      "stop_pct": -7.0,
+      "time_stop_days": null,
+      "scale_at_tp1_pct": 100,
+      "scale_at_tp2_pct": 0,
+      "scale_at_tp3_pct": 0,
+      "bot_auto_close_at": "tp1",
+      "bot_auto_close_at_comment": "Entire paper position resolves at TP1 or stop, without timeout; target gaps book target, stop gaps book opening price; ambiguous daily dual touches book stop. T2/T3 are separate hypothetical shadows.",
+      "execution_model": "completed_regular_session_daily_conservative"
+    },
+    "vetoes": {
+      "earnings_within_days": 14,
+      "min_total_oi": 500,
+      "unknown_policy": "block",
+      "earnings_buffer_basis": "calendar_days"
+    },
+    "filter_thresholds": {
+      "ncp_z_threshold": -0.5,
+      "coi_pct_threshold": -5.0,
+      "poi_pct_threshold": 0.0,
+      "dp_blocks_threshold": 30
+    },
+    "uw_pulls": {
+      "options_volume_days_back": 20,
+      "options_volume_days_back_comment": "Only need ~15 days for z-score + OI evolution. 20 = small buffer. Override via CLI --vol-days for backtests on older dates.",
+      "darkpool_days_back": 10,
+      "darkpool_days_back_comment": "10 trading days before entry day, used for cumulative block count + slope."
+    },
+    "change_log": [
+      {
+        "date": "2026-05-27",
+        "change": "initial parameters",
+        "rationale": "research_uw_picker_v1 baseline, no prospective data yet"
+      },
+      {
+        "date": "2026-06-01",
+        "change": "min_filter_score 1 -> 3 (exceptional-only)",
+        "rationale": "1 was a test/loose setting left in by mistake; it alerted INTU on only 1/4 UW conditions (flow contradicting the thesis) and broadcast it to X with the full Bonferroni claim. 3 requires >=3 of 4 UW conditions to confirm, matching the research edge. Only exceptional, flow-confirmed setups now fire."
+      },
+      {
+        "date": "2026-09-02",
+        "change": "take_all_qualified true, max_concurrent 6 (version 1.1.0)",
+        "rationale": "The one-per-day pick has no measured skill (tiebreaker spearman +0.035; skipped > picked on 8/17 and again on 9/02 clean: PICKED R +0.023 vs SKIPPED +0.518, p=0.908; no entry metric separates winners from losers on 14 live or 43 historical). The edge is the screen, not the choosing, so discarding ~60% of qualified names was throwing away return. Take-all at equal weight looked better on the same small cohort (the '~16x Sharpe-ish' figure once quoted here is WITHDRAWN 2026-10-04: a ratio of small-sample estimates with a near-zero denominator, not a portfolio Sharpe). Gates, exits, thresholds unchanged. Cap 6 covers 94% of days (median 2 open). Position size = 1/6 of book. Also triples the learning sample."
+      },
+      {
+        "date": "2026-10-04",
+        "change": "v2 execution/data/inference contract",
+        "rationale": "Independent audit remediation, authorized by user. Separate prospective cohort; no profitability or ranking-skill claim."
+      }
+    ],
+    "screen": {
+      "lookback_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "version": "nine-session-v2",
+      "legacy_column_alias": "skew_change_5d stores the named version's interval change; read window_sessions and screen_version."
+    }
+  },
+  "candidate_inputs": [
+    {
+      "ticker": "JOBY",
+      "scan_date": "2026-10-12",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T20:53:59.684180+00:00",
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "spot_close": 5.14,
+      "spot_return_pct": -14.19,
+      "skew_change_5d": -11.72,
+      "near_skew": -7.03,
+      "skew": -5.47,
+      "atm_iv": 66.8,
+      "near_dte": 4,
+      "put_wall_strike": 5.5,
+      "put_wall_oi_change": -556,
+      "sector": "Industrials",
+      "industry": "Airports & Air Services",
+      "dte_earnings": 23,
+      "sector_iv_rank": 60.0,
+      "iv_hv_ratio": 1.31,
+      "filter": {
+        "score": null,
+        "conditions": {},
+        "raw": {},
+        "error": "no options-volume data"
+      },
+      "vetoes": {
+        "pass": false,
+        "status": "unknown",
+        "reasons": [
+          "Incomplete open-interest data; admission blocked"
+        ],
+        "details": {
+          "earnings": {
+            "pass": true,
+            "status": "pass",
+            "reason": "Earnings in 22 calendar days (buffer 14)",
+            "next_earnings": "2026-11-04"
+          },
+          "liquidity": {
+            "pass": false,
+            "status": "unknown",
+            "reason": "Incomplete open-interest data; admission blocked",
+            "total_oi": null
+          }
+        },
+        "expected_entry_session": "2026-10-13"
+      },
+      "legs": {
+        "cushion_pct": -6.545454545454554,
+        "daily_move_pct": 4.208004466169396,
+        "vol_cushion": -1.5554770908817428,
+        "strong_skew": false,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "spot -7% BELOW put wall (no floor) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 3.93672205718864,
+        "skew_range": 12.89,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 4)"
+      },
+      "edge": {
+        "sector_iv_rank": 60.0,
+        "skew_slope": 0.49,
+        "iv_hv_ratio": 1.31,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 4.95,
+        "stop_atr": 1.41,
+        "tight_stop": false,
+        "atr2x_stop_pct": 9.9
+      }
+    },
+    {
+      "ticker": "LAES",
+      "scan_date": "2026-10-12",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T20:54:54.598722+00:00",
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "spot_close": 2.02,
+      "spot_return_pct": -12.93,
+      "skew_change_5d": -33.59,
+      "near_skew": -46.88,
+      "skew": -19.53,
+      "atm_iv": 65.63,
+      "near_dte": 4,
+      "put_wall_strike": 2.0,
+      "put_wall_oi_change": -72,
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "dte_earnings": 161,
+      "sector_iv_rank": 53.4,
+      "iv_hv_ratio": 1.37,
+      "filter": {
+        "score": null,
+        "conditions": {},
+        "raw": {},
+        "error": "no options-volume data"
+      },
+      "vetoes": {
+        "pass": false,
+        "status": "unknown",
+        "reasons": [
+          "No current future earnings date; admission blocked",
+          "Incomplete open-interest data; admission blocked"
+        ],
+        "details": {
+          "earnings": {
+            "pass": false,
+            "status": "unknown",
+            "reason": "No current future earnings date; admission blocked",
+            "next_earnings": null
+          },
+          "liquidity": {
+            "pass": false,
+            "status": "unknown",
+            "reason": "Incomplete open-interest data; admission blocked",
+            "total_oi": null
+          }
+        },
+        "expected_entry_session": "2026-10-13"
+      },
+      "legs": {
+        "cushion_pct": 1.0000000000000009,
+        "daily_move_pct": 4.1343013939325965,
+        "vol_cushion": 0.2418788338623733,
+        "strong_skew": true,
+        "strong_cushion": false,
+        "tradeable": true,
+        "reason": "strong leg: skew -20"
+      },
+      "noise": {
+        "skew_std": 18.606764898821073,
+        "skew_range": 50.0,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 19)"
+      },
+      "edge": {
+        "sector_iv_rank": 53.4,
+        "skew_slope": -9.82,
+        "iv_hv_ratio": 1.37,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 5.06,
+        "stop_atr": 1.38,
+        "tight_stop": false,
+        "atr2x_stop_pct": 10.1
+      }
+    },
+    {
+      "ticker": "QBTS",
+      "scan_date": "2026-10-12",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T21:02:04.477220+00:00",
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "spot_close": 13.74,
+      "spot_return_pct": -16.37,
+      "skew_change_5d": -7.13,
+      "near_skew": -7.42,
+      "skew": -6.45,
+      "atm_iv": 66.99,
+      "near_dte": 4,
+      "put_wall_strike": 13.5,
+      "put_wall_oi_change": -222,
+      "sector": "Technology",
+      "industry": "Computer Hardware",
+      "dte_earnings": 24,
+      "sector_iv_rank": 57.1,
+      "iv_hv_ratio": 1.33,
+      "filter": {
+        "score": null,
+        "conditions": {},
+        "raw": {},
+        "error": "no options-volume data"
+      },
+      "vetoes": {
+        "pass": false,
+        "status": "unknown",
+        "reasons": [
+          "Incomplete open-interest data; admission blocked"
+        ],
+        "details": {
+          "earnings": {
+            "pass": true,
+            "status": "pass",
+            "reason": "Earnings in 23 calendar days (buffer 14)",
+            "next_earnings": "2026-11-05"
+          },
+          "liquidity": {
+            "pass": false,
+            "status": "unknown",
+            "reason": "Incomplete open-interest data; admission blocked",
+            "total_oi": null
+          }
+        },
+        "expected_entry_session": "2026-10-13"
+      },
+      "legs": {
+        "cushion_pct": 1.7777777777777892,
+        "daily_move_pct": 4.219973341148021,
+        "vol_cushion": 0.4212770162415657,
+        "strong_skew": false,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "WEAK ON BOTH (skew -6 > -7, cushion 0.4x < 3x) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 2.885223368976636,
+        "skew_range": 8.6,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 3)"
+      },
+      "edge": {
+        "sector_iv_rank": 57.1,
+        "skew_slope": -0.82,
+        "iv_hv_ratio": 1.33,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 6.52,
+        "stop_atr": 1.07,
+        "tight_stop": false,
+        "atr2x_stop_pct": 13.0
+      }
+    },
+    {
+      "ticker": "RCAT",
+      "scan_date": "2026-10-12",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9,
+      "sigma_time_basis": "trading_sessions",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T21:02:40.192065+00:00",
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "spot_close": 5.39,
+      "spot_return_pct": -16.43,
+      "skew_change_5d": -8.21,
+      "near_skew": -17.19,
+      "skew": -17.19,
+      "atm_iv": 97.27,
+      "near_dte": 4,
+      "put_wall_strike": 6.5,
+      "put_wall_oi_change": -692,
+      "sector": "Industrials",
+      "industry": "Aerospace & Defense",
+      "dte_earnings": 24,
+      "sector_iv_rank": 90.0,
+      "iv_hv_ratio": 2.03,
+      "filter": {
+        "score": null,
+        "conditions": {},
+        "raw": {},
+        "error": "no options-volume data"
+      },
+      "vetoes": {
+        "pass": false,
+        "status": "unknown",
+        "reasons": [
+          "Incomplete open-interest data; admission blocked"
+        ],
+        "details": {
+          "earnings": {
+            "pass": true,
+            "status": "pass",
+            "reason": "Earnings in 23 calendar days (buffer 14)",
+            "next_earnings": "2026-11-05"
+          },
+          "liquidity": {
+            "pass": false,
+            "status": "unknown",
+            "reason": "Incomplete open-interest data; admission blocked",
+            "total_oi": null
+          }
+        },
+        "expected_entry_session": "2026-10-13"
+      },
+      "legs": {
+        "cushion_pct": -17.07692307692308,
+        "daily_move_pct": 6.127434048267921,
+        "vol_cushion": -2.786961547427886,
+        "strong_skew": true,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "spot -17% BELOW put wall (no floor) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 7.584528111007742,
+        "skew_range": 21.29,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 8)"
+      },
+      "edge": {
+        "sector_iv_rank": 90.0,
+        "skew_slope": -2.67,
+        "iv_hv_ratio": 2.03,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 5.49,
+        "stop_atr": 1.28,
+        "tight_stop": false,
+        "atr2x_stop_pct": 11.0
+      }
+    }
+  ],
+  "execution_model": "next_regular_open_completed_daily_conservative_v2",
+  "data_generation": {
+    "name": "skewdb-20261012T211531Z-38304032411_1.db",
+    "sha256": "1d8ef34bc42c5d498834f7b2d1dfc1d7e3b1b742105f75f5a04ae8c752ac16b2",
+    "bytes": 148627456
+  },
+  "min_filter_score_used": 3,
+  "picked_ticker": null,
+  "taken_tickers": [],
+  "notes": "Tier A surfaced but no candidate qualified.",
+  "context": {
+    "portfolio_before": [
+      "STLA"
+    ]
+  },
+  "candidates": [
+    {
+      "ticker": "JOBY",
+      "spot_close": 5.14,
+      "spot_return_pct": -14.19,
+      "skew_change_5d": -11.72,
+      "near_skew": -7.03,
+      "near_dte": 4,
+      "put_wall_strike": 5.5,
+      "put_wall_oi_change": -556,
+      "sector": "Industrials",
+      "industry": "Airports & Air Services",
+      "dte_earnings": 23,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": false,
+      "veto_reasons": [
+        "Incomplete open-interest data; admission blocked"
+      ],
+      "veto_details": {
+        "earnings_next": "2026-11-04",
+        "liquidity_oi": null
+      },
+      "edge": {
+        "sector_iv_rank": 60.0,
+        "skew_slope": 0.49,
+        "iv_hv_ratio": 1.31,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 4.95,
+        "stop_atr": 1.41,
+        "tight_stop": false,
+        "atr2x_stop_pct": 9.9
+      },
+      "structural_skew": -5.47,
+      "atm_iv": 66.8,
+      "legs": {
+        "cushion_pct": -6.545454545454554,
+        "daily_move_pct": 4.208004466169396,
+        "vol_cushion": -1.5554770908817428,
+        "strong_skew": false,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "spot -7% BELOW put wall (no floor) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 3.93672205718864,
+        "skew_range": 12.89,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 4)"
+      },
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T20:53:59.684180+00:00",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9
+    },
+    {
+      "ticker": "LAES",
+      "spot_close": 2.02,
+      "spot_return_pct": -12.93,
+      "skew_change_5d": -33.59,
+      "near_skew": -46.88,
+      "near_dte": 4,
+      "put_wall_strike": 2.0,
+      "put_wall_oi_change": -72,
+      "sector": "Technology",
+      "industry": "Semiconductors",
+      "dte_earnings": 161,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": false,
+      "veto_reasons": [
+        "No current future earnings date; admission blocked",
+        "Incomplete open-interest data; admission blocked"
+      ],
+      "veto_details": {
+        "earnings_next": null,
+        "liquidity_oi": null
+      },
+      "edge": {
+        "sector_iv_rank": 53.4,
+        "skew_slope": -9.82,
+        "iv_hv_ratio": 1.37,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 5.06,
+        "stop_atr": 1.38,
+        "tight_stop": false,
+        "atr2x_stop_pct": 10.1
+      },
+      "structural_skew": -19.53,
+      "atm_iv": 65.63,
+      "legs": {
+        "cushion_pct": 1.0000000000000009,
+        "daily_move_pct": 4.1343013939325965,
+        "vol_cushion": 0.2418788338623733,
+        "strong_skew": true,
+        "strong_cushion": false,
+        "tradeable": true,
+        "reason": "strong leg: skew -20"
+      },
+      "noise": {
+        "skew_std": 18.606764898821073,
+        "skew_range": 50.0,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 19)"
+      },
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T20:54:54.598722+00:00",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9
+    },
+    {
+      "ticker": "QBTS",
+      "spot_close": 13.74,
+      "spot_return_pct": -16.37,
+      "skew_change_5d": -7.13,
+      "near_skew": -7.42,
+      "near_dte": 4,
+      "put_wall_strike": 13.5,
+      "put_wall_oi_change": -222,
+      "sector": "Technology",
+      "industry": "Computer Hardware",
+      "dte_earnings": 24,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": false,
+      "veto_reasons": [
+        "Incomplete open-interest data; admission blocked"
+      ],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": null
+      },
+      "edge": {
+        "sector_iv_rank": 57.1,
+        "skew_slope": -0.82,
+        "iv_hv_ratio": 1.33,
+        "combo_pass": false,
+        "ivr_pass": true,
+        "atr_pct": 6.52,
+        "stop_atr": 1.07,
+        "tight_stop": false,
+        "atr2x_stop_pct": 13.0
+      },
+      "structural_skew": -6.45,
+      "atm_iv": 66.99,
+      "legs": {
+        "cushion_pct": 1.7777777777777892,
+        "daily_move_pct": 4.219973341148021,
+        "vol_cushion": 0.4212770162415657,
+        "strong_skew": false,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "WEAK ON BOTH (skew -6 > -7, cushion 0.4x < 3x) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 2.885223368976636,
+        "skew_range": 8.6,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 3)"
+      },
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T21:02:04.477220+00:00",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9
+    },
+    {
+      "ticker": "RCAT",
+      "spot_close": 5.39,
+      "spot_return_pct": -16.43,
+      "skew_change_5d": -8.21,
+      "near_skew": -17.19,
+      "near_dte": 4,
+      "put_wall_strike": 6.5,
+      "put_wall_oi_change": -692,
+      "sector": "Industrials",
+      "industry": "Aerospace & Defense",
+      "dte_earnings": 24,
+      "filter_score": null,
+      "filter_raw": {},
+      "filter_conditions_pass": {},
+      "veto_pass": false,
+      "veto_reasons": [
+        "Incomplete open-interest data; admission blocked"
+      ],
+      "veto_details": {
+        "earnings_next": "2026-11-05",
+        "liquidity_oi": null
+      },
+      "edge": {
+        "sector_iv_rank": 90.0,
+        "skew_slope": -2.67,
+        "iv_hv_ratio": 2.03,
+        "combo_pass": true,
+        "ivr_pass": true,
+        "atr_pct": 5.49,
+        "stop_atr": 1.28,
+        "tight_stop": false,
+        "atr2x_stop_pct": 11.0
+      },
+      "structural_skew": -17.19,
+      "atm_iv": 97.27,
+      "legs": {
+        "cushion_pct": -17.07692307692308,
+        "daily_move_pct": 6.127434048267921,
+        "vol_cushion": -2.786961547427886,
+        "strong_skew": true,
+        "strong_cushion": false,
+        "tradeable": false,
+        "reason": "spot -17% BELOW put wall (no floor) \u2014 NO TRADE"
+      },
+      "noise": {
+        "skew_std": 7.584528111007742,
+        "skew_range": 21.29,
+        "noisy": false,
+        "status": "pass",
+        "reason": "chain ok (skew std 8)"
+      },
+      "quote_source": "Yahoo cached last price; executable entry is next session open",
+      "quote_asof": null,
+      "observed_at": "2026-10-12T21:02:40.192065+00:00",
+      "screen_version": "nine-session-v2",
+      "window_sessions": 9
+    }
+  ],
+  "delivery": {
+    "telegram": "pending",
+    "positions": "n/a",
+    "x": "n/a",
+    "sheet": "n/a",
+    "complete": false
+  },
+  "outbox": {
+    "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-10-12\n\n4 Tier A candidate(s) surfaced, but none qualified \u2014 each was either vetoed or WEAK ON BOTH legs (no deep skew capitulation AND no real vol-adjusted cushion).\nNO TRADE today \u2014 we don't force weak-on-both setups (the SYM/RGTI lesson).\nNext update: tomorrow after the 2:45 PM CT scan.",
+    "x": null,
+    "positions": [],
+    "featured": null
+  }
+}
