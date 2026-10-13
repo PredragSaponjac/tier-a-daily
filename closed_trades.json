@@ -87,7 +87,16 @@
     "tp3_day": null,
     "stop_day": 10,
     "also_reached": "TP2 +11%",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": -2.6470633114085484,
+      "mae_pct_max": -2.6470633114085484,
+      "mfe_pct_min": 14.20588773839615,
+      "mfe_pct_max": 14.20588773839615,
+      "exact": true,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "SYM",
@@ -177,7 +186,16 @@
     "tp3_day": null,
     "stop_day": null,
     "also_reached": "TP2 +11%",
-    "uw_score": 1
+    "uw_score": 1,
+    "excursion_bounds": {
+      "mae_pct_min": -3.6450832010173184,
+      "mae_pct_max": -3.6450832010173184,
+      "mfe_pct_min": 10.983213429256589,
+      "mfe_pct_max": 14.72422098941939,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "RGTI",
@@ -207,7 +225,16 @@
     "tp3_day": null,
     "stop_day": 1,
     "also_reached": "—",
-    "uw_score": 1
+    "uw_score": 1,
+    "excursion_bounds": {
+      "mae_pct_min": -15.11948844965767,
+      "mae_pct_max": -6.985294117647067,
+      "mfe_pct_min": 0.0,
+      "mfe_pct_max": 3.9981579079347407,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "NNE",
@@ -233,7 +260,16 @@
     "tp2_day": 4,
     "tp3_day": null,
     "stop_day": null,
-    "also_reached": "TP2 +11%"
+    "also_reached": "TP2 +11%",
+    "excursion_bounds": {
+      "mae_pct_min": -4.665072378739588,
+      "mae_pct_max": -4.665072378739588,
+      "mfe_pct_min": 10.00797448165871,
+      "mfe_pct_max": 14.417859431849344,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "MDB",
@@ -259,7 +295,16 @@
     "tp2_day": null,
     "tp3_day": null,
     "stop_day": 4,
-    "also_reached": "—"
+    "also_reached": "—",
+    "excursion_bounds": {
+      "mae_pct_min": -8.23861904433617,
+      "mae_pct_max": -7.001166861143526,
+      "mfe_pct_min": 6.26021288378793,
+      "mfe_pct_max": 6.26021288378793,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "ADSK",
@@ -289,7 +334,16 @@
     "tp3_day": null,
     "stop_day": null,
     "also_reached": "—",
-    "uw_score": 1
+    "uw_score": 1,
+    "excursion_bounds": {
+      "mae_pct_min": -6.596173212487411,
+      "mae_pct_max": -6.596173212487411,
+      "mfe_pct_min": 10.000000000000009,
+      "mfe_pct_max": 10.03021363165204,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "RDDT",
@@ -349,7 +403,16 @@
     "tp3_day": null,
     "stop_day": null,
     "also_reached": "—",
-    "uw_score": 2
+    "uw_score": 2,
+    "excursion_bounds": {
+      "mae_pct_min": -4.874895439773308,
+      "mae_pct_max": -4.874895439773308,
+      "mfe_pct_min": 10.000000000000009,
+      "mfe_pct_max": 10.008628127696294,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "TDOC",
@@ -379,7 +442,16 @@
     "tp3_day": null,
     "stop_day": 13,
     "also_reached": "—",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": -9.397943079384053,
+      "mae_pct_max": -7.000000000000006,
+      "mfe_pct_min": 3.230546399535239,
+      "mfe_pct_max": 3.230546399535239,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "INOD",
@@ -409,7 +481,16 @@
     "tp3_day": null,
     "stop_day": 6,
     "also_reached": "—",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": -7.335283229274426,
+      "mae_pct_max": -7.000000000000006,
+      "mfe_pct_min": 8.11425307786764,
+      "mfe_pct_max": 8.11425307786764,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "SEDG",
@@ -439,7 +520,16 @@
     "tp3_day": null,
     "stop_day": null,
     "also_reached": "—",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": -4.157193150757266,
+      "mae_pct_max": -4.157193150757266,
+      "mfe_pct_min": 10.000000000000009,
+      "mfe_pct_max": 10.984088616465627,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "LCID",
@@ -469,7 +559,16 @@
     "tp3_day": null,
     "stop_day": 2,
     "also_reached": "—",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": -7.216494845360821,
+      "mae_pct_max": -7.000000000000006,
+      "mfe_pct_min": 0.0,
+      "mfe_pct_max": 0.0,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "FLY",
@@ -499,7 +598,16 @@
     "tp3_day": null,
     "stop_day": null,
     "also_reached": "TP2 +11%",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": 0.0,
+      "mae_pct_max": 0.0,
+      "mfe_pct_min": 10.000000000000009,
+      "mfe_pct_max": 13.449447329170061,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   },
   {
     "ticker": "DNUT",
@@ -529,6 +637,15 @@
     "tp3_day": null,
     "stop_day": 10,
     "also_reached": "—",
-    "uw_score": 0
+    "uw_score": 0,
+    "excursion_bounds": {
+      "mae_pct_min": -7.371791509481584,
+      "mae_pct_max": -7.000000000000006,
+      "mfe_pct_min": 1.6025665478828666,
+      "mfe_pct_max": 1.6025665478828666,
+      "exact": false,
+      "method": "manual_exit_daily_bounds"
+    },
+    "excursion_bounds_note": "held-period daily bounds measured 2026-10-13 from Yahoo daily bars; the old full-window heat_pct/peak_pct are kept as recorded"
   }
 ]

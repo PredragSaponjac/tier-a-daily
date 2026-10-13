@@ -249,7 +249,8 @@ def format_close_for_x(ticker: str, entry: float, exit_price: float, reason: str
         for label, prefix in [('Adverse excursion', 'mae'), ('Favorable excursion', 'mfe')]:
             lo, hi = excursion_bounds.get(prefix + '_pct_min'), excursion_bounds.get(prefix + '_pct_max')
             if lo is not None and hi is not None:
-                parts.append(f'{label}: {lo:+.1f}% to {hi:+.1f}% (daily-bar bounds)')
+                span = f'{lo:+.1f}%' if abs(lo - hi) < 0.05 else f'{lo:+.1f}% to {hi:+.1f}%'
+                parts.append(f'{label}: {span} (daily-bar bounds)')
         parts.append('Exit-bar order cannot be recovered from daily OHLC.')
         parts.append('')
     elif mae_pct is not None or mfe_pct is not None:

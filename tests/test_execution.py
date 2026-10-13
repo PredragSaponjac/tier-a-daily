@@ -318,7 +318,53 @@ class ExecutionTests(unittest.TestCase):
         self.assertAlmostEqual(b['mfe_pct_min'], 5)
         self.assertAlmostEqual(b['mfe_pct_max'], 12)
         self.assertIsNone(excursions.compute_excursion('TEST', '2026-09-11', 100))
-        self.assertIn('legacy measurement', excursions.format_excursion_block([{'ticker': 'OLD'}]))
+
+    def test_excursion_block_never_prints_a_line_per_unmeasured_trade(self):
+        """2026-10-13: the X post printed 18 'unavailable' lines, one per old trade."""
+        exact = {'mae_pct_min': -3.14, 'mae_pct_max': -3.14, 'mfe_pct_min': 10.0, 'mfe_pct_max': 10.0}
+        ranged = {'mae_pct_min': -8.2, 'mae_pct_max': -7.0, 'mfe_pct_min': 1.0, 'mfe_pct_max': 4.5}
+        block = excursions.format_excursion_block([
+            {'ticker': 'WIN', 'excursion_bounds': exact}, {'ticker': 'LOSS', 'excursion_bounds': ranged},
+            {'ticker': 'OLD1'}, {'ticker': 'OLD2', 'excursion_bounds': {'mae_pct_min': None}}])
+        self.assertIn('WIN: worst -3.1%, best +10.0%', block)
+        self.assertIn('LOSS: worst -8.2% to -7.0%, best +1.0% to +4.5%', block)
+        self.assertIn('Not measured: OLD1, OLD2', block)             # one shared line, no crash
+        self.assertEqual(len(block.splitlines()), 4)
+        self.assertNotIn('unavailable', block)
+        self.assertEqual(excursions.format_excursion_block([{'ticker': 'OLD'}]), '')   # nothing measured
+
+    def test_backfill_measures_only_unmeasured_closed_trades_and_keeps_the_record(self):
+        old = {'ticker': 'OLD', 'entry_date': '2026-08-03', 'entry_price': 100.0, 'exit_date': '2026-08-14',
+               'exit_price': 110.0, 'outcome': 'WIN', 'result_pct': 10.0, 'heat_pct': -3.4, 'peak_pct': 19.1}
+        done = {'ticker': 'NEW', 'excursion_bounds': {'mae_pct_min': -1.0, 'mae_pct_max': -1.0,
+                                                      'mfe_pct_min': 2.0, 'mfe_pct_max': 2.0}}
+        bad = {**old, 'ticker': 'BAD'}
+        measured = {'mae_pct_min': -3.4, 'mae_pct_max': -3.4, 'mfe_pct_min': 10.0, 'mfe_pct_max': 12.0}
+        calls = []
+
+        def fake_compute(ticker, entry_date, entry_price, exit_date, exit_price):
+            calls.append((ticker, entry_date, entry_price, exit_date, exit_price))
+            if ticker == 'BAD':
+                raise ValueError('invalid manual daily OHLC')
+            return {'excursion_bounds': measured, 'heat_pct': -99.0}
+
+        trades = [old, done, bad]
+        added, failed = excursions.backfill_bounds(trades, compute=fake_compute, today='2026-10-13')
+        self.assertEqual((added, len(failed)), (['OLD'], 1))
+        self.assertEqual(calls[0], ('OLD', '2026-08-03', 100.0, '2026-08-14', 110.0))
+        self.assertNotIn('NEW', [c[0] for c in calls])                 # already measured: untouched
+        self.assertEqual(old['excursion_bounds'], measured)
+        self.assertEqual((old['outcome'], old['result_pct'], old['heat_pct'], old['peak_pct']),
+                         ('WIN', 10.0, -3.4, 19.1))                    # the record itself is unchanged
+        self.assertIn('2026-10-13', old['excursion_bounds_note'])
+        self.assertNotIn('excursion_bounds', bad)                      # a failure stays unmeasured
+
+    def test_excursion_save_keeps_text_as_written(self):
+        """A save must change only real data: no \\u escapes rewriting every note line."""
+        store = self.root / 'closed_trades.json'
+        with patch.object(excursions, 'STORE', str(store)):
+            excursions.save([{'ticker': 'T', 'also_reached': '—'}])
+        self.assertIn('"also_reached": "—"', store.read_text(encoding='utf-8'))
 
     def test_manual_historical_fills_and_exit_bounds_share_later_split_basis(self):
         data = bars([[50, 52, 49, 51, 0, 0], [51, 56, 49, 55, 0, 0], [55, 60, 50, 57, 2, 0]],

@@ -23,7 +23,8 @@ def load() -> list:
 def save(trades: list):
     from pathlib import Path
     from position_tracker import _atomic_write
-    _atomic_write(Path(STORE), json.dumps(trades, indent=2))
+    # Same serialization as position_tracker's writer, so a save changes only real data.
+    _atomic_write(Path(STORE), json.dumps(trades, indent=2, ensure_ascii=False))
 
 
 def compute_excursion(ticker, entry_date, entry_price, exit_date=None, exit_price=None, asof=None):
@@ -174,21 +175,71 @@ def format_results_line(trades=None) -> str:
     ])
 
 
-def format_excursion_block(trades=None):
-    """Render held-period ranges; historical full-window values are unverified."""
-    trades = load() if trades is None else trades
-    if not trades:
-        return ''
-    lines = ['Paper record: held-period daily excursion bounds:']
+BOUND_KEYS = ('mae_pct_min', 'mae_pct_max', 'mfe_pct_min', 'mfe_pct_max')
+BACKFILL_NOTE = ('held-period daily bounds measured {date} from Yahoo daily bars; the old '
+                 'full-window heat_pct/peak_pct are kept as recorded')
+
+
+def _valid_bounds(b) -> bool:
+    return (isinstance(b, dict) and all(isinstance(b.get(k), (int, float)) and math.isfinite(b[k])
+                                        for k in BOUND_KEYS))
+
+
+def backfill_bounds(trades, compute=None, today=None):
+    """Measure held-period daily bounds for closed trades that never had them.
+
+    Review 2026-10-13: the 18 trades recorded before the 2026-10-04 audit carried
+    full-window heat/peak values that ran past the exit (RDDT +19.1 on a +10 exit), so
+    the post printed 'unavailable' for every one of them. This adds `excursion_bounds`
+    only — outcome, prices and the old heat/peak fields stay exactly as recorded. A trade
+    whose daily bars cannot be validated stays unmeasured and is returned in `failed`.
+    """
+    compute = compute or compute_excursion
+    today = today or datetime.now().date().isoformat()
+    added, failed = [], []
     for t in trades:
-        b = t.get('excursion_bounds')
-        if not b:
-            lines.append(f"{t['ticker']}: held-period extrema unavailable (legacy measurement)")
+        if _valid_bounds(t.get('excursion_bounds')) or not t.get('exit_date') or t.get('exit_price') is None:
             continue
-        def value(prefix):
-            lo, hi = b[prefix + '_pct_min'], b[prefix + '_pct_max']
-            return f'{lo:+.1f}%' if abs(lo - hi) < 1e-8 else f'{lo:+.1f}% to {hi:+.1f}%'
-        lines.append(f"{t['ticker']}: adverse {value('mae')}; favorable {value('mfe')}")
+        try:
+            exc = compute(t['ticker'], t['entry_date'], float(t.get('original_entry_price') or t['entry_price']),
+                          t['exit_date'], float(t.get('original_exit_price') or t['exit_price']))
+        except Exception as exc_error:
+            failed.append(f"{t['ticker']}: {type(exc_error).__name__}: {exc_error}")
+            continue
+        if not exc or not _valid_bounds(exc.get('excursion_bounds')):
+            failed.append(f"{t['ticker']}: daily bars incomplete")
+            continue
+        t['excursion_bounds'] = exc['excursion_bounds']
+        t['excursion_bounds_note'] = BACKFILL_NOTE.format(date=today)
+        added.append(t['ticker'])
+    return added, failed
+
+
+def format_excursion_block(trades=None):
+    """Worst and best move while each trade was open, from completed daily bars.
+
+    A range means the exit day's intraday order is unknown (its high or low may have come
+    after the exit). Trades without a valid measurement share ONE line, so a missing feed
+    can never again fill a post with an 'unavailable' line per trade (review 2026-10-13);
+    if no trade is measured the block is left out entirely.
+    """
+    trades = load() if trades is None else trades
+    measured = [t for t in trades if _valid_bounds(t.get('excursion_bounds'))]
+    if not measured:
+        return ''
+
+    def value(b, prefix):
+        lo, hi = b[prefix + '_pct_min'], b[prefix + '_pct_max']
+        return f'{lo:+.1f}%' if abs(lo - hi) < 0.05 else f'{lo:+.1f}% to {hi:+.1f}%'
+
+    lines = ['Paper record — worst / best move while each trade was open '
+             '(daily bars; a range = exit-day order unknown):']
+    for t in measured:
+        b = t['excursion_bounds']
+        lines.append(f"{t['ticker']}: worst {value(b, 'mae')}, best {value(b, 'mfe')}")
+    missing = [t['ticker'] for t in trades if not _valid_bounds(t.get('excursion_bounds'))]
+    if missing:
+        lines.append('Not measured: ' + ', '.join(missing))
     return '\n'.join(lines)
 
 
@@ -201,7 +252,20 @@ if __name__ == '__main__':
     p.add_argument('--exit-date')
     p.add_argument('--exit-price', type=float)
     p.add_argument('--show', action='store_true', help='print the post block')
+    p.add_argument('--backfill', action='store_true',
+                   help='measure held-period bounds for closed trades that lack them')
     args = p.parse_args()
+    if args.backfill:
+        from state_lock import portfolio_lock, checkpoint
+        with portfolio_lock():
+            trades = load()
+            added, failed = backfill_bounds(trades)
+            if added:
+                save(trades)
+                checkpoint(paths=('closed_trades.json',))
+        print(f'[excursions] measured {len(added)}: {", ".join(added) or "-"}')
+        for line in failed:
+            print(f'::warning::[excursions] not measured — {line}')
     if args.add:
         if args.exit_date is None or args.exit_price is None:
             p.error('--add requires --exit-date and --exit-price for a held-period measurement')

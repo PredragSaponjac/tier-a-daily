@@ -14,23 +14,27 @@ import parameters as P
 def _next_trading_day_phrase(scan_date: str) -> str:
     """Return a calendar-aware 'next update' phrase.
 
-    The bot only sends Telegram from the PM run, which fires Mon-Fri.
-    So from Fri the next update is Monday (NOT 'tomorrow' = Saturday).
-    Skips weekends. (US market holidays are not modeled here; on a holiday
-    the GH run simply produces no new data, which is acceptable.)
+    The bot only sends Telegram from the PM run, which fires on exchange sessions.
+    So from Fri the next update is Monday (NOT 'tomorrow' = Saturday), and the
+    exchange calendar skips market holidays too. v2 scans at 16:05 New York time,
+    i.e. 3:05 PM CT (the old 2:45 PM CT text was the v1 schedule; fixed 2026-10-13).
     """
     try:
         d = datetime.date.fromisoformat(scan_date[:10])
     except Exception:
         return "Next update: next trading day."
-    nxt = d + datetime.timedelta(days=1)
-    while nxt.weekday() >= 5:          # 5 = Sat, 6 = Sun -> skip to Monday
-        nxt += datetime.timedelta(days=1)
+    try:
+        from market_time import next_session
+        nxt = next_session(d)
+    except Exception:
+        nxt = d + datetime.timedelta(days=1)
+        while nxt.weekday() >= 5:      # 5 = Sat, 6 = Sun -> skip to Monday
+            nxt += datetime.timedelta(days=1)
     if (nxt - d).days == 1:
         when = "tomorrow"
     else:
         when = nxt.strftime("%A")      # e.g. "Monday"
-    return f"Next update: {when} after the 2:45 PM CT scan."
+    return f"Next update: {when} after the 3:05 PM CT scan."
 
 
 TRACK_RECORD_LINE = (
@@ -173,8 +177,10 @@ def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None
     elif day_pool and len(day_pool) > 1 and not taken:
         runner_up = next((x for x in day_pool if x['ticker'] != c['ticker']), None)
         if runner_up:
-            ru_f = runner_up['filter']
-            lines.append(f"(Today's runner-up: ${runner_up['ticker']} score {ru_f.get('score','—')}/4)")
+            ru_score = runner_up['filter'].get('score')
+            # Never print a UW score we did not measure ("score None/4"; 2026-10-13).
+            ru_tag = f" score {ru_score}/4" if ru_score is not None else ''
+            lines.append(f"(Today's runner-up: ${runner_up['ticker']}{ru_tag})")
             lines.append("")
     # Live results line (auto, never stale) + heat & peak detail
     try:
@@ -222,8 +228,10 @@ def format_watch_list(watch: list) -> str:
              '📋 WATCH LIST — surfaced but NOT auto-traded (your call):',
              '(held back by the gate; flow can be right even when structure says wait — e.g. CAVA 6/8 +11%)']
     for c in watch:
-        score = c['filter'].get('score') or 0
-        conv = '⭐' * score + '☆' * (4 - score)
+        score = c['filter'].get('score')
+        # "UW 0/4 ☆☆☆☆" read as "flow checked, none found" when no flow was read at all
+        # (UW cancelled 2026-08-13). Show the UW part only when it was measured (2026-10-13).
+        uw = f"UW {score}/4 {'⭐' * score + '☆' * (4 - score)} | " if score is not None else ''
         L = c.get('legs', {})
         skew = c.get('skew')
         vc = L.get('vol_cushion')
@@ -238,7 +246,7 @@ def format_watch_list(watch: list) -> str:
             why = 'weak on both legs'
         skew_s = f"{skew:+.0f}" if skew is not None else '?'
         vc_s = f"{vc:.1f}x" if vc is not None else '?'
-        lines.append(f"  • {c['ticker']:<5s} UW {score}/4 {conv} | skew {skew_s}, cushion {vc_s} | {why}")
+        lines.append(f"  • {c['ticker']:<5s} {uw}skew {skew_s}, cushion {vc_s} | {why}")
         # Edge-validation readout (research only — informational, still NOT auto-traded)
         e = c.get('edge')
         if e:
