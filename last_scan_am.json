@@ -1,14 +1,14 @@
 {
   "scan": "AM",
-  "latest_scan_date": "2026-10-12",
-  "utc": "2026-10-12T15:33:04.151439+00:00",
-  "candidate_log_rows": 80956,
-  "skew_daily_rows": 80956,
-  "fixed_strike_vol_rows": 478229,
-  "db_bytes": 147673088,
+  "latest_scan_date": "2026-10-13",
+  "utc": "2026-10-13T15:44:20.504337+00:00",
+  "candidate_log_rows": 81617,
+  "skew_daily_rows": 81617,
+  "fixed_strike_vol_rows": 482121,
+  "db_bytes": 149782528,
   "db_generation": {
-    "name": "skewdb-20261012T153256Z-38265568919_1.db",
-    "sha256": "1cfd696b7bae17fb81119445db12da7518ad5d0aaddb50aa3823cfd71690039b",
-    "bytes": 147673088
+    "name": "skewdb-20261013T154411Z-38415989768_1.db",
+    "sha256": "e256d8dea10aeae64b38c6c3269ba937daedf491db5805071bff6993ae79abfb",
+    "bytes": 149782528
   }
 }
