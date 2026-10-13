@@ -42,6 +42,38 @@
       },
       "execution_method": "completed_daily_next_open_v1",
       "observations_asof": "2026-10-13T20:28:01.382187Z"
+    },
+    {
+      "ticker": "UUUU",
+      "trade_id": "UUUU:2026-10-13",
+      "signal_date": "2026-10-13",
+      "entry_policy": "next_regular_open",
+      "status": "PENDING_ENTRY",
+      "entry_reference_price": 9.27,
+      "exit_pcts": {
+        "tp1": 10.000000000000009,
+        "tp2": 11.00000000000001,
+        "tp3": 19.999999999999996,
+        "stop": -7.000000000000018
+      },
+      "entry_date": "2026-10-13",
+      "entry_price": 9.27,
+      "T1": 10.197000000000001,
+      "T2": 10.2897,
+      "T3": 11.123999999999999,
+      "STOP": 8.621099999999998,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": null,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "2.0.0",
+      "added_at": "2026-10-13T21:26:55.929870Z"
     }
   ]
 }
