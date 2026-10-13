@@ -555,7 +555,7 @@
     "telegram": "sent",
     "positions": "tracked",
     "x": "posted",
-    "sheet": "pending",
+    "sheet": "synced",
     "complete": false,
     "telegram_attempts": 1,
     "telegram_id": 2387,
