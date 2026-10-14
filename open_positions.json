@@ -83,8 +83,9 @@
         "telegram": "sent",
         "telegram_attempts": 1,
         "telegram_message_id": 2391,
-        "x": "inflight",
-        "x_attempts": 1
+        "x": "posted",
+        "x_attempts": 1,
+        "x_id": "2110367954034729318"
       }
     }
   ]
