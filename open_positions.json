@@ -8,8 +8,8 @@
       "T2": 4.9173,
       "T3": 5.316,
       "STOP": 4.1198999999999995,
-      "MAE_pct": -2.934532940522272,
-      "MAE_date": "2026-10-01",
+      "MAE_pct": -4.288944218551594,
+      "MAE_date": "2026-10-14",
       "MFE_pct": 6.32054262182784,
       "MFE_date": "2026-10-01",
       "filter_score": null,
@@ -31,62 +31,17 @@
       "quantity_factor": 1.0,
       "corporate_actions": [],
       "price_basis": "split_normalized_price_only",
-      "price_basis_asof": "2026-10-13T21:38:22.424026+00:00",
+      "price_basis_asof": "2026-10-14T20:25:02.992807+00:00",
       "excursion_bounds": {
-        "mae_pct_min": -2.934532940522272,
-        "mae_pct_max": -2.934532940522272,
+        "mae_pct_min": -4.288944218551594,
+        "mae_pct_max": -4.288944218551594,
         "mfe_pct_min": 6.32054262182784,
         "mfe_pct_max": 6.32054262182784,
         "exact": true,
         "method": "completed_daily_next_open_v1"
       },
       "execution_method": "completed_daily_next_open_v1",
-      "observations_asof": "2026-10-13T21:38:22.425870Z"
-    },
-    {
-      "ticker": "UUUU",
-      "trade_id": "UUUU:2026-10-13",
-      "signal_date": "2026-10-13",
-      "entry_policy": "next_regular_open",
-      "status": "PENDING_ENTRY",
-      "entry_reference_price": 9.27,
-      "exit_pcts": {
-        "tp1": 10.000000000000009,
-        "tp2": 11.00000000000001,
-        "tp3": 19.999999999999996,
-        "stop": -7.000000000000018
-      },
-      "entry_date": "2026-10-13",
-      "entry_price": 9.27,
-      "T1": 10.197000000000001,
-      "T2": 10.2897,
-      "T3": 11.123999999999999,
-      "STOP": 8.621099999999998,
-      "MAE_pct": 0.0,
-      "MAE_date": null,
-      "MFE_pct": 0.0,
-      "MFE_date": null,
-      "filter_score": null,
-      "z_ncp": null,
-      "coi_pct": null,
-      "poi_pct": null,
-      "dp_blocks_10d": null,
-      "dp_cumul_10d_M": null,
-      "parameters_version": "2.0.0",
-      "added_at": "2026-10-13T21:26:55.929870Z",
-      "entry_announcement": {
-        "session": "2026-10-14",
-        "open": 8.989999771118164,
-        "T1": 9.888999748229981,
-        "STOP": 8.360699787139891,
-        "source": "opening_print",
-        "telegram": "sent",
-        "telegram_attempts": 1,
-        "telegram_message_id": 2391,
-        "x": "posted",
-        "x_attempts": 1,
-        "x_id": "2110367954034729318"
-      }
+      "observations_asof": "2026-10-14T20:25:02.994500Z"
     }
   ]
 }
