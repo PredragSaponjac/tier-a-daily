@@ -80,8 +80,9 @@
         "T1": 9.888999748229981,
         "STOP": 8.360699787139891,
         "source": "opening_print",
-        "telegram": "inflight",
-        "telegram_attempts": 1
+        "telegram": "sent",
+        "telegram_attempts": 1,
+        "telegram_message_id": 2391
       }
     }
   ]
