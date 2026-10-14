@@ -708,11 +708,12 @@
     "uw_score": 0,
     "detected_at": "2026-10-14T20:25:03Z",
     "publication": {
-      "telegram": "inflight",
+      "telegram": "sent",
       "x": "pending",
       "tg_attempts": 1,
       "x_attempts": 0,
-      "telegram_attempted_at": "2026-10-14T20:25:04.909377Z"
+      "telegram_attempted_at": "2026-10-14T20:25:04.909377Z",
+      "telegram_message_id": 2396
     }
   }
 ]
