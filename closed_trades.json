@@ -709,12 +709,13 @@
     "detected_at": "2026-10-14T20:25:03Z",
     "publication": {
       "telegram": "sent",
-      "x": "inflight",
+      "x": "posted",
       "tg_attempts": 1,
       "x_attempts": 1,
       "telegram_attempted_at": "2026-10-14T20:25:04.909377Z",
       "telegram_message_id": 2396,
-      "x_attempted_at": "2026-10-14T20:25:09.311119Z"
+      "x_attempted_at": "2026-10-14T20:25:09.311119Z",
+      "x_id": "2110466969812029930"
     }
   }
 ]
