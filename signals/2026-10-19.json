@@ -1234,7 +1234,7 @@
   ],
   "delivery": {
     "telegram": "sent",
-    "positions": "pending",
+    "positions": "tracked",
     "x": "pending",
     "sheet": "pending",
     "complete": false,

@@ -42,6 +42,38 @@
       },
       "execution_method": "completed_daily_next_open_v1",
       "observations_asof": "2026-10-19T20:27:26.173992Z"
+    },
+    {
+      "ticker": "UAMY",
+      "trade_id": "UAMY:2026-10-19",
+      "signal_date": "2026-10-19",
+      "entry_policy": "next_regular_open",
+      "status": "PENDING_ENTRY",
+      "entry_reference_price": 3.1,
+      "exit_pcts": {
+        "tp1": 10.000000000000009,
+        "tp2": 11.00000000000001,
+        "tp3": 19.999999999999996,
+        "stop": -7.000000000000006
+      },
+      "entry_date": "2026-10-19",
+      "entry_price": 3.1,
+      "T1": 3.4100000000000006,
+      "T2": 3.4410000000000003,
+      "T3": 3.7199999999999998,
+      "STOP": 2.883,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": null,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "2.0.0",
+      "added_at": "2026-10-19T21:04:43.336555Z"
     }
   ]
 }
