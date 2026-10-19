@@ -1237,7 +1237,7 @@
     "positions": "tracked",
     "x": "posted",
     "sheet": "synced",
-    "complete": false,
+    "complete": true,
     "telegram_attempts": 1,
     "telegram_id": 2430,
     "x_attempts": 1,
