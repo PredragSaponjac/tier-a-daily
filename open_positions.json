@@ -82,7 +82,9 @@
         "source": "opening_print",
         "telegram": "sent",
         "telegram_attempts": 1,
-        "telegram_message_id": 2433
+        "telegram_message_id": 2433,
+        "x": "inflight",
+        "x_attempts": 1
       }
     }
   ]
