@@ -782,12 +782,13 @@
     }
   ],
   "delivery": {
-    "telegram": "inflight",
+    "telegram": "sent",
     "positions": "n/a",
     "x": "n/a",
     "sheet": "n/a",
     "complete": false,
-    "telegram_attempts": 1
+    "telegram_attempts": 1,
+    "telegram_id": 2438
   },
   "outbox": {
     "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-10-20\n\n5 Tier A candidate(s) surfaced, but none qualified \u2014 each was either vetoed or WEAK ON BOTH legs (no deep skew capitulation AND no real vol-adjusted cushion).\nNO TRADE today \u2014 we don't force weak-on-both setups (the SYM/RGTI lesson).\nNext update: tomorrow after the 3:05 PM CT scan.\n\u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014\n\ud83d\udccb WATCH LIST \u2014 surfaced but NOT auto-traded (your call):\n(held back by the gate; flow can be right even when structure says wait \u2014 e.g. CAVA 6/8 +11%)\n  \u2022 REPL  skew -17, cushion 0.7x | NOISY chain (skew std 71)\n      \ud83d\udd2c edge: rank 69.4 | slope 10.5 | iv/hv 1.52 \u2192 combo \u2014 | stop 1.09xATR\n  \u2022 ASPI  skew -29, cushion -2.7x | spot below put wall\n      \ud83d\udd2c edge: rank 94.4 | slope -0.12 | iv/hv 1.09 \u2192 combo \u2014 | stop 0.66xATR",
