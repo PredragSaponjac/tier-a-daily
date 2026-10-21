@@ -31,7 +31,7 @@
       "quantity_factor": 1.0,
       "corporate_actions": [],
       "price_basis": "split_normalized_price_only",
-      "price_basis_asof": "2026-10-21T20:26:08.454502+00:00",
+      "price_basis_asof": "2026-10-21T21:40:41.588658+00:00",
       "excursion_bounds": {
         "mae_pct_min": -5.41760593181807,
         "mae_pct_max": -5.41760593181807,
@@ -41,7 +41,7 @@
         "method": "completed_daily_next_open_v1"
       },
       "execution_method": "completed_daily_next_open_v1",
-      "observations_asof": "2026-10-21T20:26:08.456077Z"
+      "observations_asof": "2026-10-21T21:40:41.590221Z"
     }
   ]
 }
