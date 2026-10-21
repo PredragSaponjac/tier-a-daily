@@ -31,7 +31,7 @@
       "quantity_factor": 1.0,
       "corporate_actions": [],
       "price_basis": "split_normalized_price_only",
-      "price_basis_asof": "2026-10-20T21:38:59.810202+00:00",
+      "price_basis_asof": "2026-10-21T20:26:08.454502+00:00",
       "excursion_bounds": {
         "mae_pct_min": -5.41760593181807,
         "mae_pct_max": -5.41760593181807,
@@ -41,73 +41,7 @@
         "method": "completed_daily_next_open_v1"
       },
       "execution_method": "completed_daily_next_open_v1",
-      "observations_asof": "2026-10-20T21:38:59.811688Z"
-    },
-    {
-      "ticker": "UAMY",
-      "trade_id": "UAMY:2026-10-19",
-      "signal_date": "2026-10-19",
-      "entry_policy": "next_regular_open",
-      "status": "OPEN",
-      "entry_reference_price": 3.1,
-      "exit_pcts": {
-        "tp1": 10.000000000000009,
-        "tp2": 11.00000000000001,
-        "tp3": 19.999999999999996,
-        "stop": -7.000000000000006
-      },
-      "entry_date": "2026-10-20",
-      "entry_price": 3.059999942779541,
-      "T1": 3.3659999370574956,
-      "T2": 3.396599936485291,
-      "T3": 3.671999931335449,
-      "STOP": 2.845799946784973,
-      "MAE_pct": -2.941173720662238,
-      "MAE_date": "2026-10-20",
-      "MFE_pct": 5.718952797016175,
-      "MFE_date": "2026-10-20",
-      "filter_score": null,
-      "z_ncp": null,
-      "coi_pct": null,
-      "poi_pct": null,
-      "dp_blocks_10d": null,
-      "dp_cumul_10d_M": null,
-      "parameters_version": "2.0.0",
-      "added_at": "2026-10-19T21:04:43.336555Z",
-      "entry_announcement": {
-        "session": "2026-10-20",
-        "open": 3.059999942779541,
-        "T1": 3.3659999370574956,
-        "STOP": 2.845799946784973,
-        "source": "opening_print",
-        "telegram": "sent",
-        "telegram_attempts": 1,
-        "telegram_message_id": 2433,
-        "x": "inflight",
-        "x_attempts": 1
-      },
-      "original_entry_price": 3.059999942779541,
-      "original_levels": {
-        "T1": 3.3659999370574956,
-        "T2": 3.396599936485291,
-        "T3": 3.671999931335449,
-        "STOP": 2.845799946784973
-      },
-      "split_factor": 1.0,
-      "quantity_factor": 1.0,
-      "corporate_actions": [],
-      "price_basis": "split_normalized_price_only",
-      "price_basis_asof": "2026-10-20T21:39:00.096274+00:00",
-      "excursion_bounds": {
-        "mae_pct_min": -2.941173720662238,
-        "mae_pct_max": -2.941173720662238,
-        "mfe_pct_min": 5.718952797016175,
-        "mfe_pct_max": 5.718952797016175,
-        "exact": true,
-        "method": "completed_daily_next_open_v1"
-      },
-      "execution_method": "completed_daily_next_open_v1",
-      "observations_asof": "2026-10-20T21:39:00.097689Z"
+      "observations_asof": "2026-10-21T20:26:08.456077Z"
     }
   ]
 }
