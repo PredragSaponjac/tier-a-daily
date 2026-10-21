@@ -777,11 +777,12 @@
     "uw_score": 0,
     "detected_at": "2026-10-21T20:26:08Z",
     "publication": {
-      "telegram": "inflight",
+      "telegram": "sent",
       "x": "pending",
       "tg_attempts": 1,
       "x_attempts": 0,
-      "telegram_attempted_at": "2026-10-21T20:26:11.202864Z"
+      "telegram_attempted_at": "2026-10-21T20:26:11.202864Z",
+      "telegram_message_id": 2448
     }
   }
 ]
