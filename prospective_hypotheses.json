@@ -50,8 +50,8 @@
     }
   ],
   "status": {
-    "last_run": "2026-10-22",
-    "database": "skewdb-20261022T211342Z-39848085013_1.db",
+    "last_run": "2026-10-23",
+    "database": "skew_history.db",
     "new_prospective_rows_last_run": 0,
     "by_hypothesis": {
       "P1_put_wall_held_through_washout": {
@@ -63,14 +63,14 @@
           "n_no_resolved": 0
         },
         "pre_registration_context": {
-          "n_total": 47,
-          "n_yes_total": 19,
-          "n_resolved": 46,
+          "n_total": 50,
+          "n_yes_total": 20,
+          "n_resolved": 47,
           "n_yes_resolved": 19,
-          "n_no_resolved": 27,
+          "n_no_resolved": 28,
           "hit_yes": 0.421,
-          "hit_no": 0.481,
-          "diff_pts": -6.0
+          "hit_no": 0.5,
+          "diff_pts": -7.9
         },
         "rates_visible": false,
         "next_milestone_n_resolved": 40,
@@ -86,14 +86,14 @@
           "n_no_resolved": 0
         },
         "pre_registration_context": {
-          "n_total": 47,
-          "n_yes_total": 18,
-          "n_resolved": 46,
+          "n_total": 50,
+          "n_yes_total": 19,
+          "n_resolved": 47,
           "n_yes_resolved": 18,
-          "n_no_resolved": 28,
+          "n_no_resolved": 29,
           "hit_yes": 0.556,
-          "hit_no": 0.393,
-          "diff_pts": 16.3
+          "hit_no": 0.414,
+          "diff_pts": 14.2
         },
         "rates_visible": false,
         "next_milestone_n_resolved": 40,

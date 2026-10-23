@@ -1,17 +1,17 @@
 {
-  "date": "2026-10-16",
+  "date": "2026-10-23",
   "p_bar": 0.0017857142857142859,
   "n_tests": 28,
   "label_coverage": {
     "ok": true,
     "version": 5,
-    "expected": 2,
-    "current": 2,
+    "expected": 5,
+    "current": 5,
     "stale_rows": 0,
     "legacy_rows_preserved": 50,
     "invalid": [],
     "missing": [],
-    "detail": "labels v5: 2 of 2 qualifiers current, 50 historical row(s) preserved"
+    "detail": "labels v5: 5 of 5 qualifiers current, 50 historical row(s) preserved"
   },
   "inference_status": {
     "ok": true,
@@ -23,14 +23,14 @@
   },
   "cluster_evidence": {
     "method": "Connected components joining same scan date, same ticker, or overlapping observed holding windows; resample whole components. Descriptive sensitivity interval only.",
-    "n_paths": 2,
-    "n_resolved": 2,
-    "n_censored": 0,
-    "n_clusters": 1,
+    "n_paths": 5,
+    "n_resolved": 3,
+    "n_censored": 2,
+    "n_clusters": 2,
     "promotion_evidence": false,
-    "mean_resolved_pnl_pct": -7.0,
-    "n_resolved_clusters": 1,
-    "interval_unavailable": "need 10 independent components; have 1"
+    "mean_resolved_pnl_pct": -1.3333333333333333,
+    "n_resolved_clusters": 2,
+    "interval_unavailable": "need 10 independent components; have 2"
   },
   "results": [
     {
@@ -38,47 +38,47 @@
       "type": "entry_filter",
       "registered": "2026-07-28",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 2,
-      "n_censored": 0,
+      "n_at_risk": 5,
+      "n_censored": 2,
       "n_missing_feature": 0,
-      "n_pass": 1,
+      "n_pass": 2,
       "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 1 / fail 1 labeled (need 10 each)"
+      "detail": "pass 2 / fail 1 labeled (need 10 each)"
     },
     {
       "id": "H2_combo_rank_slope",
       "type": "entry_filter",
       "registered": "2026-07-28",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 2,
-      "n_censored": 0,
+      "n_at_risk": 5,
+      "n_censored": 2,
       "n_missing_feature": 0,
-      "n_pass": 0,
+      "n_pass": 1,
       "n_fail": 2,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 0 / fail 2 labeled (need 10 each)"
+      "detail": "pass 1 / fail 2 labeled (need 10 each)"
     },
     {
       "id": "H3_iv_hv_ratio",
       "type": "entry_filter",
       "registered": "2026-07-28",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 2,
-      "n_censored": 0,
+      "n_at_risk": 5,
+      "n_censored": 2,
       "n_missing_feature": 0,
       "n_pass": 2,
-      "n_fail": 0,
+      "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 2 / fail 0 labeled (need 10 each)"
+      "detail": "pass 2 / fail 1 labeled (need 10 each)"
     },
     {
       "id": "H5_green_by_day3",
       "type": "post_entry",
       "registered": "2026-08-17",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 0,
-      "n_censored": 0,
+      "n_at_risk": 2,
+      "n_censored": 2,
       "n_missing_feature": 0,
       "n_pass": 0,
       "n_fail": 0,
@@ -90,20 +90,20 @@
       "type": "exit_shadow",
       "registered": "2026-08-17",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 2,
-      "n_fail": 2,
+      "n_pass": 3,
+      "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "2 resolved (need 10)"
+      "detail": "3 resolved (need 10)"
     },
     {
       "id": "Q2_stop_minus6_shadow",
       "type": "exit_shadow",
       "registered": "2026-08-17",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 2,
-      "n_fail": 2,
+      "n_pass": 3,
+      "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "2 resolved (need 10)"
+      "detail": "3 resolved (need 10)"
     },
     {
       "id": "Q1_t1_plus12_shadow",
@@ -120,79 +120,79 @@
       "type": "portfolio",
       "registered": "2026-08-17",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 1,
+      "n_pass": 2,
       "n_fail": 0,
       "verdict": "INSUFFICIENT",
-      "detail": "picked 1 / skipped 0 resolved since archives began (need 10 each)"
+      "detail": "picked 2 / skipped 0 resolved since archives began (need 10 each)"
     },
     {
       "id": "Q7_breadth_gate",
       "type": "entry_filter",
       "registered": "2026-08-17",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 2,
-      "n_censored": 0,
+      "n_at_risk": 5,
+      "n_censored": 2,
       "n_missing_feature": 0,
       "n_pass": 2,
-      "n_fail": 0,
+      "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 2 / fail 0 labeled (need 10 each)"
+      "detail": "pass 2 / fail 1 labeled (need 10 each)"
     },
     {
       "id": "Q8_atm_iv_speed",
       "type": "speed",
       "registered": "2026-08-17",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 0,
+      "n_pass": 1,
       "n_fail": 0,
       "features_tested": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "0 winners with days_to_t1 (need 10)"
+      "detail": "1 winners with days_to_t1 (need 10)"
     },
     {
       "id": "S1_first_green_day1",
       "type": "post_entry",
       "registered": "2026-09-02",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 1,
-      "n_censored": 0,
+      "n_at_risk": 4,
+      "n_censored": 2,
       "n_missing_feature": 0,
-      "n_pass": 0,
+      "n_pass": 1,
       "n_fail": 1,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 0 / fail 1 labeled (need 10 each)"
+      "detail": "pass 1 / fail 1 labeled (need 10 each)"
     },
     {
       "id": "S2_fast_t1_entry_fingerprint",
       "type": "speed",
       "registered": "2026-09-02",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 0,
+      "n_pass": 1,
       "n_fail": 0,
       "features_tested": 13,
       "verdict": "INSUFFICIENT",
-      "detail": "0 winners with days_to_t1 (need 10)"
+      "detail": "1 winners with days_to_t1 (need 10)"
     },
     {
       "id": "S3_ticker_vix",
       "type": "entry_filter",
       "registered": "2026-09-02",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 2,
-      "n_censored": 0,
+      "n_at_risk": 5,
+      "n_censored": 2,
       "n_missing_feature": 0,
-      "n_pass": 0,
+      "n_pass": 1,
       "n_fail": 2,
       "verdict": "INSUFFICIENT",
-      "detail": "pass 0 / fail 2 labeled (need 10 each)"
+      "detail": "pass 1 / fail 2 labeled (need 10 each)"
     },
     {
       "id": "S5_call_wall_oi_d2",
       "type": "post_entry",
       "registered": "2026-09-02",
       "p_bar": 0.0017857142857142859,
-      "n_at_risk": 0,
-      "n_censored": 0,
+      "n_at_risk": 2,
+      "n_censored": 2,
       "n_missing_feature": 0,
       "n_pass": 0,
       "n_fail": 0,
@@ -204,20 +204,20 @@
       "type": "exit_shadow",
       "registered": "2026-09-26",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 2,
-      "n_fail": 2,
+      "n_pass": 3,
+      "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "2 resolved (need 10)"
+      "detail": "3 resolved (need 10)"
     },
     {
       "id": "S7_t1_plus8_shadow",
       "type": "exit_shadow",
       "registered": "2026-09-26",
       "p_bar": 0.0017857142857142859,
-      "n_pass": 2,
-      "n_fail": 2,
+      "n_pass": 3,
+      "n_fail": 3,
       "verdict": "INSUFFICIENT",
-      "detail": "2 resolved (need 10)"
+      "detail": "3 resolved (need 10)"
     }
   ]
 }
