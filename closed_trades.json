@@ -836,11 +836,12 @@
     "detected_at": "2026-10-23T20:26:54Z",
     "publication": {
       "telegram": "sent",
-      "x": "pending",
+      "x": "inflight",
       "tg_attempts": 1,
-      "x_attempts": 0,
+      "x_attempts": 1,
       "telegram_attempted_at": "2026-10-23T20:26:56.409993Z",
-      "telegram_message_id": 2467
+      "telegram_message_id": 2467,
+      "x_attempted_at": "2026-10-23T20:26:59.855208Z"
     }
   }
 ]
