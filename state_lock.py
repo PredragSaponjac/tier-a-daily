@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parent
 STATE_PATHS = ('signals', 'open_positions.json', 'closed_trades.json', 'open_trades.json',
                'x_drafts', 'x_posted.log', 'last_scan_am.json',
                'last_scan_pm.json', 'audit_latest.json', 'audit_history',
-               'inference_checkpoints', 'inference_protocol_lock.json')
+               'inference_checkpoints', 'inference_protocol_lock.json',
+               'prospective_hypotheses.json', 'prospective_ledger.csv')
 
 
 class StateCheckpointError(RuntimeError):

@@ -24,7 +24,8 @@ def validate():
             checked += 1
         except (OSError, SyntaxError) as exc:
             problems.append(f'{path.name}: {type(exc).__name__}')
-    for name in ('parameters.json', 'hypotheses.json', 'open_positions.json', 'closed_trades.json'):
+    for name in ('parameters.json', 'hypotheses.json', 'open_positions.json', 'closed_trades.json',
+                 'prospective_hypotheses.json'):
         try:
             json.loads((ROOT/name).read_text(encoding='utf-8'))
             checked += 1
@@ -42,6 +43,11 @@ def validate():
         assert p['exits']['tp1_pct'] > 0 > p['exits']['stop_pct']
         assert P.selection_params()['max_concurrent'] > 0
         PT.list_open()  # strict reader; no writes
+        # prospective registry (2026-10-22): tracking only, outside the frozen v1 family
+        prospective = json.loads((ROOT/'prospective_hypotheses.json').read_text(encoding='utf-8'))
+        assert prospective['hypotheses'] and all(h['implements'] is False and h['status'] in ('tracking', 'retired')
+                                                 and h['registered'] >= '2026-10-22' for h in prospective['hypotheses'])
+        assert prospective['read_plan']['decision_read_at_n_resolved'] >= 160
         closed = json.loads((ROOT/'closed_trades.json').read_text(encoding='utf-8'))
         if not isinstance(closed, list):
             raise ValueError('closed trade record must be a list')

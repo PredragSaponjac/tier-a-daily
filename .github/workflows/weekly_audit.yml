@@ -45,6 +45,16 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python self_audit.py --send --json
+      # Hypotheses registered after the frozen v1 cohort began (2026-10-22) live outside
+      # hypotheses.json; this only records their features and outcomes. It must never
+      # block the audit, so a failure here is visible but not fatal.
+      - name: Track prospective hypotheses (outside inference v1; never implements)
+        if: steps.pull.outcome == 'success'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python prospective_tracker.py --send
       - name: Store database state even if reporting failed
         # A failed label batch rolls back rows, but CREATE/ALTER migrations that
         # preceded its DML transaction survive. Verify and retain that valid DB.
@@ -60,6 +70,8 @@ jobs:
             audit_latest.json
             audit_history/
             inference_checkpoints/
+            prospective_hypotheses.json
+            prospective_ledger.csv
           retention-days: 1
           if-no-files-found: error
       - name: Preserve failed audit evidence
@@ -99,4 +111,4 @@ jobs:
         with:
           name: weekly-records-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Commit the audit record
-        run: python -c "from state_lock import checkpoint; checkpoint(['audit_latest.json', 'audit_history', 'inference_checkpoints'])"
+        run: python -c "from state_lock import checkpoint; checkpoint(['audit_latest.json', 'audit_history', 'inference_checkpoints', 'prospective_hypotheses.json', 'prospective_ledger.csv'])"

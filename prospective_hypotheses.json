@@ -1,0 +1,104 @@
+{
+  "_readme": [
+    "Prospective candidates registered AFTER the frozen inference-v1 cohort began (2026-10-05).",
+    "research-v1-2026-10-05 fingerprints hypotheses.json, its 28 planned tests, the engine files and the single 2027-07-02 look; nothing may be added to that family mid-cohort. These ideas live here instead and can only be promoted by a FUTURE, separately frozen inference version.",
+    "Tracking only. prospective_tracker.py records features and outcomes and reports counts; it never changes selection, exits, sizing or any file the bot trades from.",
+    "Evidence = qualifiers whose scan_date is on or after the registration date. Rows before that date are 'pre_registration' context: definitions were chosen after seeing how often each feature occurs, but before any outcome of those rows was read.",
+    "Owner decision 2026-10-22: 'yes write them down and monitor' (source: Options Insight / Imran Lakha emails, full read in orca-bot/LAKHA_EMAILS_LEDGER_2026-10-22.md)."
+  ],
+  "registry_version": "prospective-candidates-2026-10-22",
+  "population": "Every Tier A qualifier row in tier_a_paths (written weekly by path_labels.py). Features are read from skew_daily on exchange sessions only (market_time), at the signal date and at the session exactly 9 sessions earlier, the start of Tier A's 9-session window.",
+  "outcome": "hit_t1: 1 if the labelled path resolved at the +10% target, 0 if at the -7% stop. OPEN rows are censored and excluded from rates until they resolve.",
+  "read_plan": {
+    "interim_descriptive_looks_at_n_resolved": [
+      40,
+      80
+    ],
+    "decision_read_at_n_resolved": 160,
+    "decision_rule": "At the decision read, for each hypothesis: hit-rate difference (feature yes minus feature no) on resolved prospective rows, Fisher exact one-sided p < 0.025 (family alpha 0.05 over 2 tests), AND the sign must agree in both chronological halves. Interim looks print rates only; they can never issue READY and never change a rule.",
+    "min_effect_pts": 15,
+    "power_note": "At roughly 90 qualifiers a year and a 40/60 feature split, 160 resolved rows (about 18-24 months) give about 70% power for a 20-point hit-rate gap and about 90% for 25 points at p < 0.025. A smaller true effect may stay undecided; then the hypothesis is retired as 'not demonstrated', not extended or re-tuned.",
+    "failure_statement": "If the decision read does not meet the rule, the hypothesis is retired with these exact definitions and is not re-opened with new thresholds, windows or outcome definitions."
+  },
+  "hypotheses": [
+    {
+      "id": "P1_put_wall_held_through_washout",
+      "registered": "2026-10-22",
+      "status": "tracking",
+      "implements": false,
+      "feature": "p1_wall_held",
+      "feature_version": 1,
+      "source": "Options Insight email 2026-02-20 (IBM): the stock crashed through its put wall but the wall did not roll lower, so the options positioning was not confirming more downside; read as supportive.",
+      "definition": "p1_wall_held = 1 if put_wall_strike on the signal date >= put_wall_strike 9 sessions earlier (the wall did NOT roll down during the washout), 0 if it rolled lower. Blank if either wall is missing or zero.",
+      "prediction": "Qualifiers with p1_wall_held = 1 hit the target more often than qualifiers with 0.",
+      "direction": "higher",
+      "prevalence_check_2026-10-22": "47 past qualifiers with both readings: held 19, rolled 28 (median roll -9%). Outcomes were not read when this was chosen."
+    },
+    {
+      "id": "P2_opening_put_sale_footprint",
+      "registered": "2026-10-22",
+      "status": "tracking",
+      "implements": false,
+      "feature": "p2_put_sale_footprint",
+      "feature_version": 1,
+      "source": "Options Insight email 2026-09-03 (Jason Ruschel): large OPENING put sales, volume above open interest at a strike and large for the name, mean someone with a balance sheet committed to own the stock there; the level then behaves like support.",
+      "definition": "We have no flow feed, so this is a PROXY: p2_put_sale_footprint = 1 if put_wall_oi on the signal date > put_wall_oi 9 sessions earlier AND put_25d_iv on the signal date < put_25d_iv 9 sessions earlier (puts were added while their price fell, i.e. net sellers), else 0. Blank if any input is missing. The wall strike may differ between the two dates; the comparison is between each day's own wall.",
+      "prediction": "Qualifiers with p2_put_sale_footprint = 1 hit the target more often than qualifiers with 0.",
+      "direction": "higher",
+      "prevalence_check_2026-10-22": "47 past qualifiers: footprint 18, not 29. The one-day put_wall_oi_change field is <= 0 for every past qualifier (apparently filtered upstream), so the 9-session window comparison is used instead. Outcomes were not read when this was chosen."
+    }
+  ],
+  "status": {
+    "last_run": "2026-10-22",
+    "database": "skewdb-20261022T211342Z-39848085013_1.db",
+    "new_prospective_rows_last_run": 0,
+    "by_hypothesis": {
+      "P1_put_wall_held_through_washout": {
+        "prospective": {
+          "n_total": 0,
+          "n_yes_total": 0,
+          "n_resolved": 0,
+          "n_yes_resolved": 0,
+          "n_no_resolved": 0
+        },
+        "pre_registration_context": {
+          "n_total": 47,
+          "n_yes_total": 19,
+          "n_resolved": 46,
+          "n_yes_resolved": 19,
+          "n_no_resolved": 27,
+          "hit_yes": 0.421,
+          "hit_no": 0.481,
+          "diff_pts": -6.0
+        },
+        "rates_visible": false,
+        "next_milestone_n_resolved": 40,
+        "decision_read_at_n_resolved": 160,
+        "verdict": "tracking; no verdict is possible before the decision read"
+      },
+      "P2_opening_put_sale_footprint": {
+        "prospective": {
+          "n_total": 0,
+          "n_yes_total": 0,
+          "n_resolved": 0,
+          "n_yes_resolved": 0,
+          "n_no_resolved": 0
+        },
+        "pre_registration_context": {
+          "n_total": 47,
+          "n_yes_total": 18,
+          "n_resolved": 46,
+          "n_yes_resolved": 18,
+          "n_no_resolved": 28,
+          "hit_yes": 0.556,
+          "hit_no": 0.393,
+          "diff_pts": 16.3
+        },
+        "rates_visible": false,
+        "next_milestone_n_resolved": 40,
+        "decision_read_at_n_resolved": 160,
+        "verdict": "tracking; no verdict is possible before the decision read"
+      }
+    }
+  }
+}
