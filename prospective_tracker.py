@@ -32,6 +32,9 @@ REGISTRY = HERE / 'prospective_hypotheses.json'
 LEDGER = HERE / 'prospective_ledger.csv'
 WINDOW = 9                      # Tier A's screen window, in exchange sessions
 FEATURE_VERSION = 1
+LEGACY_NOTE = ('Rows before 2026-10-05 carry legacy labels that entered near the signal-day close; the live rule '
+               'enters at the next open, and re-scored that way the pre-registration split differs (orca-bot '
+               'footprint_universe/RESULTS.md, 2026-10-25). Context only; deliberately left out of the weekly message.')
 COLUMNS = ['ticker', 'scan_date', 'cohort', 'data_ok', 'd0', 'wall_d0', 'wall_now', 'p1_wall_held',
            'oi_d0', 'oi_now', 'put_iv_d0', 'put_iv_now', 'p2_put_sale_footprint', 'feature_version',
            'computed_on', 'outcome', 'hit_t1', 'r_live', 'outcome_asof']
@@ -146,13 +149,7 @@ def report(registry, summary, new_rows):
         line += f"; decision read at {s['decision_read_at_n_resolved']}."
         lines.append(line)
     lines.append(f"New prospective qualifiers this run: {new_rows}.")
-    context = []
-    for h in registry['hypotheses']:
-        c = summary[h['id']]['pre_registration_context']
-        if 'diff_pts' in c:
-            context.append(f"{h['feature']}: yes {c['n_yes_resolved']} → {c['hit_yes']:.0%}, no {c['n_no_resolved']} → {c['hit_no']:.0%}")
-    if context:
-        lines.append('Pre-registration context (in-sample, NOT evidence): ' + ' | '.join(context))
+    # Pre-registration context stays out of the message on purpose; see LEGACY_NOTE.
     return '\n'.join(lines)
 
 
@@ -187,7 +184,8 @@ def update(db_path, registry_path=REGISTRY, ledger_path=LEDGER, today=None, dry_
     if not dry_run:
         save_ledger(ledger_path, ledger)
         registry['status'] = {'last_run': today.isoformat(), 'database': Path(db_path).name,
-                              'new_prospective_rows_last_run': new_rows, 'by_hypothesis': summary}
+                              'new_prospective_rows_last_run': new_rows, 'by_hypothesis': summary,
+                              'pre_registration_context_note': LEGACY_NOTE}
         tmp = Path(str(registry_path) + '.tmp')
         tmp.write_text(json.dumps(registry, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
         os.replace(tmp, registry_path)

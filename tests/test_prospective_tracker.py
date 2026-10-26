@@ -79,6 +79,16 @@ class ProspectiveTrackerTests(unittest.TestCase):
         s = summary['P1_put_wall_held_through_washout']
         self.assertEqual((s['prospective']['n_total'], s['pre_registration_context']['n_total']), (1, 1))
 
+    def test_weekly_message_leaves_out_legacy_context(self):
+        make_db(self.db, [('A', '2026-09-30', 10, 9.0, 100, 80.0), ('A', PRE, 8.5, 9.0, 150, 70.0),   # footprint
+                          ('B', '2026-09-30', 10, 9.0, 100, 80.0), ('B', PRE, 8.5, 8.0, 90, 70.0)],   # none
+                [('A', PRE, 'T1', 1.43), ('B', PRE, 'STOP', -1.0)])
+        text, _, summary = self.run_update()
+        self.assertIn('diff_pts', summary['P2_opening_put_sale_footprint']['pre_registration_context'])
+        self.assertNotIn('Pre-registration', text)
+        status = json.loads(self.reg.read_text(encoding='utf-8'))['status']
+        self.assertIn('legacy labels', status['pre_registration_context_note'])
+
     def test_features_are_frozen_while_outcomes_refresh(self):
         make_db(self.db, [('T', '2026-10-20', 10, 9.0, 100, 80.0), ('T', PRO, 8.5, 9.0, 150, 70.0)], [('T', PRO, 'OPEN', None)])
         self.run_update(today='2026-11-06')
