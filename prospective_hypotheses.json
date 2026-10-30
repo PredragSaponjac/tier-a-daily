@@ -50,7 +50,7 @@
     }
   ],
   "status": {
-    "last_run": "2026-10-23",
+    "last_run": "2026-10-30",
     "database": "skew_history.db",
     "new_prospective_rows_last_run": 0,
     "by_hypothesis": {
@@ -65,12 +65,12 @@
         "pre_registration_context": {
           "n_total": 50,
           "n_yes_total": 20,
-          "n_resolved": 47,
-          "n_yes_resolved": 19,
-          "n_no_resolved": 28,
-          "hit_yes": 0.421,
-          "hit_no": 0.5,
-          "diff_pts": -7.9
+          "n_resolved": 49,
+          "n_yes_resolved": 20,
+          "n_no_resolved": 29,
+          "hit_yes": 0.45,
+          "hit_no": 0.517,
+          "diff_pts": -6.7
         },
         "rates_visible": false,
         "next_milestone_n_resolved": 40,
@@ -88,18 +88,19 @@
         "pre_registration_context": {
           "n_total": 50,
           "n_yes_total": 19,
-          "n_resolved": 47,
-          "n_yes_resolved": 18,
-          "n_no_resolved": 29,
-          "hit_yes": 0.556,
-          "hit_no": 0.414,
-          "diff_pts": 14.2
+          "n_resolved": 49,
+          "n_yes_resolved": 19,
+          "n_no_resolved": 30,
+          "hit_yes": 0.579,
+          "hit_no": 0.433,
+          "diff_pts": 14.6
         },
         "rates_visible": false,
         "next_milestone_n_resolved": 40,
         "decision_read_at_n_resolved": 160,
         "verdict": "tracking; no verdict is possible before the decision read"
       }
-    }
+    },
+    "pre_registration_context_note": "Rows before 2026-10-05 carry legacy labels that entered near the signal-day close; the live rule enters at the next open, and re-scored that way the pre-registration split differs (orca-bot footprint_universe/RESULTS.md, 2026-10-25). Context only; deliberately left out of the weekly message."
   }
 }

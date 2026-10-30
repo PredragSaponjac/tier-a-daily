@@ -1,0 +1,223 @@
+{
+  "cluster_evidence": {
+    "interval_unavailable": "need 10 independent components; have 2",
+    "mean_resolved_pnl_pct": 3.2,
+    "method": "Connected components joining same scan date, same ticker, or overlapping observed holding windows; resample whole components. Descriptive sensitivity interval only.",
+    "n_censored": 0,
+    "n_clusters": 2,
+    "n_paths": 5,
+    "n_resolved": 5,
+    "n_resolved_clusters": 2,
+    "promotion_evidence": false
+  },
+  "date": "2026-10-30",
+  "inference_status": {
+    "checkpoint_date": "2027-07-02",
+    "checkpoint_due": false,
+    "detail": "research-v1-2026-10-05: descriptive weekly report; one review on 2027-07-02; automatic READY disabled",
+    "fingerprint": "0afdaeea8002ba0625b9460171415b1fdc529e20e2d5021277e794b0ad9f00b2",
+    "ok": true,
+    "version": "research-v1-2026-10-05"
+  },
+  "label_coverage": {
+    "current": 5,
+    "detail": "labels v5: 5 of 5 qualifiers current, 50 historical row(s) preserved",
+    "expected": 5,
+    "invalid": [],
+    "legacy_rows_preserved": 50,
+    "missing": [],
+    "ok": true,
+    "stale_rows": 0,
+    "version": 5
+  },
+  "n_tests": 28,
+  "p_bar": 0.0017857142857142859,
+  "results": [
+    {
+      "detail": "pass 4 / fail 1 labeled (need 10 each)",
+      "id": "H1_sector_iv_rank",
+      "n_at_risk": 5,
+      "n_censored": 0,
+      "n_fail": 1,
+      "n_missing_feature": 0,
+      "n_pass": 4,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-07-28",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 2 / fail 3 labeled (need 10 each)",
+      "id": "H2_combo_rank_slope",
+      "n_at_risk": 5,
+      "n_censored": 0,
+      "n_fail": 3,
+      "n_missing_feature": 0,
+      "n_pass": 2,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-07-28",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 4 / fail 1 labeled (need 10 each)",
+      "id": "H3_iv_hv_ratio",
+      "n_at_risk": 5,
+      "n_censored": 0,
+      "n_fail": 1,
+      "n_missing_feature": 0,
+      "n_pass": 4,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-07-28",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 2 / fail 0 labeled (need 10 each)",
+      "id": "H5_green_by_day3",
+      "n_at_risk": 2,
+      "n_censored": 0,
+      "n_fail": 0,
+      "n_missing_feature": 0,
+      "n_pass": 2,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "post_entry",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "5 resolved (need 10)",
+      "id": "Q2_stop_minus5_shadow",
+      "n_fail": 5,
+      "n_pass": 5,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "5 resolved (need 10)",
+      "id": "Q2_stop_minus6_shadow",
+      "n_fail": 5,
+      "n_pass": 5,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "4 resolved (need 10)",
+      "id": "Q1_t1_plus12_shadow",
+      "n_fail": 4,
+      "n_pass": 4,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "picked 2 / skipped 1 resolved since archives began (need 10 each)",
+      "id": "Q5_take_all_vs_one",
+      "n_fail": 1,
+      "n_pass": 2,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "portfolio",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 2 / fail 3 labeled (need 10 each)",
+      "id": "Q7_breadth_gate",
+      "n_at_risk": 5,
+      "n_censored": 0,
+      "n_fail": 3,
+      "n_missing_feature": 0,
+      "n_pass": 2,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "3 winners with days_to_t1 (need 10)",
+      "features_tested": 1,
+      "id": "Q8_atm_iv_speed",
+      "n_fail": 0,
+      "n_pass": 3,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-08-17",
+      "type": "speed",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 2 / fail 2 labeled (need 10 each)",
+      "id": "S1_first_green_day1",
+      "n_at_risk": 4,
+      "n_censored": 0,
+      "n_fail": 2,
+      "n_missing_feature": 0,
+      "n_pass": 2,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "post_entry",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "3 winners with days_to_t1 (need 10)",
+      "features_tested": 13,
+      "id": "S2_fast_t1_entry_fingerprint",
+      "n_fail": 0,
+      "n_pass": 3,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "speed",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 2 / fail 3 labeled (need 10 each)",
+      "id": "S3_ticker_vix",
+      "n_at_risk": 5,
+      "n_censored": 0,
+      "n_fail": 3,
+      "n_missing_feature": 0,
+      "n_pass": 2,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "entry_filter",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "pass 0 / fail 2 labeled (need 10 each)",
+      "id": "S5_call_wall_oi_d2",
+      "n_at_risk": 2,
+      "n_censored": 0,
+      "n_fail": 2,
+      "n_missing_feature": 0,
+      "n_pass": 0,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-02",
+      "type": "post_entry",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "5 resolved (need 10)",
+      "id": "S6_nevergreen_exit_d2",
+      "n_fail": 5,
+      "n_pass": 5,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-26",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    },
+    {
+      "detail": "5 resolved (need 10)",
+      "id": "S7_t1_plus8_shadow",
+      "n_fail": 5,
+      "n_pass": 5,
+      "p_bar": 0.0017857142857142859,
+      "registered": "2026-09-26",
+      "type": "exit_shadow",
+      "verdict": "INSUFFICIENT"
+    }
+  ]
+}
