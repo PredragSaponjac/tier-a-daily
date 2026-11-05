@@ -1,0 +1,10 @@
+{
+  "run_id": "gh42110362048_1_56c7535509a948eeb61cf16c5ab2ce82",
+  "scan_date": "2026-11-05",
+  "recorded_at": "2026-11-05T21:54:51.802969+00:00",
+  "delivery_update": {
+    "telegram": "inflight",
+    "telegram_attempts": 1,
+    "complete": false
+  }
+}
