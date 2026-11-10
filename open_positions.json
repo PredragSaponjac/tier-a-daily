@@ -1,3 +1,36 @@
 {
-  "positions": []
+  "positions": [
+    {
+      "ticker": "RH",
+      "trade_id": "RH:2026-11-10",
+      "signal_date": "2026-11-10",
+      "entry_policy": "next_regular_open",
+      "status": "PENDING_ENTRY",
+      "entry_reference_price": 130.95,
+      "exit_pcts": {
+        "tp1": 10.000000000000009,
+        "tp2": 11.00000000000001,
+        "tp3": 19.999999999999996,
+        "stop": -7.000000000000006
+      },
+      "entry_date": "2026-11-10",
+      "entry_price": 130.95,
+      "T1": 144.045,
+      "T2": 145.3545,
+      "T3": 157.14,
+      "STOP": 121.78349999999998,
+      "MAE_pct": 0.0,
+      "MAE_date": null,
+      "MFE_pct": 0.0,
+      "MFE_date": null,
+      "filter_score": null,
+      "z_ncp": null,
+      "coi_pct": null,
+      "poi_pct": null,
+      "dp_blocks_10d": null,
+      "dp_cumul_10d_M": null,
+      "parameters_version": "2.0.0",
+      "added_at": "2026-11-10T21:37:32.742230Z"
+    }
+  ]
 }
