@@ -5,7 +5,7 @@
       "trade_id": "RH:2026-11-10",
       "signal_date": "2026-11-10",
       "entry_policy": "next_regular_open",
-      "status": "PENDING_ENTRY",
+      "status": "OPEN",
       "entry_reference_price": 130.95,
       "exit_pcts": {
         "tp1": 10.000000000000009,
@@ -13,16 +13,16 @@
         "tp3": 19.999999999999996,
         "stop": -7.000000000000006
       },
-      "entry_date": "2026-11-10",
-      "entry_price": 130.95,
-      "T1": 144.045,
-      "T2": 145.3545,
-      "T3": 157.14,
-      "STOP": 121.78349999999998,
-      "MAE_pct": 0.0,
-      "MAE_date": null,
-      "MFE_pct": 0.0,
-      "MFE_date": null,
+      "entry_date": "2026-11-11",
+      "entry_price": 133.60000610351562,
+      "T1": 146.9600067138672,
+      "T2": 148.29600677490237,
+      "T3": 160.32000732421875,
+      "STOP": 124.24800567626953,
+      "MAE_pct": -0.7614546559291724,
+      "MAE_date": "2026-11-11",
+      "MFE_pct": 2.889221881742099,
+      "MFE_date": "2026-11-11",
       "filter_score": null,
       "z_ncp": null,
       "coi_pct": null,
@@ -43,7 +43,29 @@
         "x": "posted",
         "x_attempts": 1,
         "x_id": "2120529534780920046"
-      }
+      },
+      "original_entry_price": 133.60000610351562,
+      "original_levels": {
+        "T1": 146.9600067138672,
+        "T2": 148.29600677490237,
+        "T3": 160.32000732421875,
+        "STOP": 124.24800567626953
+      },
+      "split_factor": 1.0,
+      "quantity_factor": 1.0,
+      "corporate_actions": [],
+      "price_basis": "split_normalized_price_only",
+      "price_basis_asof": "2026-11-11T21:19:48.490905+00:00",
+      "excursion_bounds": {
+        "mae_pct_min": -0.7614546559291724,
+        "mae_pct_max": -0.7614546559291724,
+        "mfe_pct_min": 2.889221881742099,
+        "mfe_pct_max": 2.889221881742099,
+        "exact": true,
+        "method": "completed_daily_next_open_v1"
+      },
+      "execution_method": "completed_daily_next_open_v1",
+      "observations_asof": "2026-11-11T21:19:48.492307Z"
     }
   ]
 }
