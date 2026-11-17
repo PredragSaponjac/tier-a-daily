@@ -1,0 +1,10 @@
+{
+  "run_id": "gh44177468265_1_705abd21c74e40b4b2b9b75a9fa8f20d",
+  "scan_date": "2026-11-17",
+  "recorded_at": "2026-11-17T21:49:12.158087+00:00",
+  "delivery_update": {
+    "x": "inflight",
+    "x_attempts": 1,
+    "complete": false
+  }
+}
