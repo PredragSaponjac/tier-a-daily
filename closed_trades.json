@@ -906,12 +906,13 @@
     "detected_at": "2026-11-17T21:17:55Z",
     "publication": {
       "telegram": "sent",
-      "x": "inflight",
+      "x": "posted",
       "tg_attempts": 1,
       "x_attempts": 1,
       "telegram_attempted_at": "2026-11-17T21:17:57.480824Z",
       "telegram_message_id": 2633,
-      "x_attempted_at": "2026-11-17T21:18:01.104926Z"
+      "x_attempted_at": "2026-11-17T21:18:01.104926Z",
+      "x_id": "2122801461335597478"
     }
   }
 ]
