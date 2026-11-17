@@ -1,15 +1,15 @@
 {
   "scan": "PM",
   "latest_scan_date": "2026-11-17",
-  "utc": "2026-11-17T22:38:37.662711+00:00",
+  "utc": "2026-11-17T23:04:29.899338+00:00",
   "candidate_log_rows": 98139,
   "skew_daily_rows": 98139,
   "fixed_strike_vol_rows": 579445,
-  "db_bytes": 274186240,
+  "db_bytes": 275591168,
   "db_generation": {
-    "name": "skewdb-20261117T223734Z-44183862981_1.db",
-    "sha256": "a018a661e2cf21645a97229fb8a0b12bfbdc88e5c940b7ee1f2f4c1c4618f484",
-    "bytes": 274186240
+    "name": "skewdb-20261117T230339Z-44188600457_1.db",
+    "sha256": "d091942b495416faa5a73b55f5d0feb3c026742d61e69a694cba14cc3e903710",
+    "bytes": 275591168
   },
   "decision_run_id": "gh44177468265_1_705abd21c74e40b4b2b9b75a9fa8f20d",
   "decision_db_generation": {
