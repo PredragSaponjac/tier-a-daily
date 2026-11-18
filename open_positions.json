@@ -30,7 +30,16 @@
       "dp_blocks_10d": null,
       "dp_cumul_10d_M": null,
       "parameters_version": "2.0.0",
-      "added_at": "2026-11-17T21:49:11.118026Z"
+      "added_at": "2026-11-17T21:49:11.118026Z",
+      "entry_announcement": {
+        "session": "2026-11-18",
+        "open": 115.02999877929688,
+        "T1": 126.53299865722657,
+        "STOP": 106.97789886474608,
+        "source": "opening_print",
+        "telegram": "inflight",
+        "telegram_attempts": 1
+      }
     }
   ]
 }
