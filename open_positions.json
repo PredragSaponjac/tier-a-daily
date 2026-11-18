@@ -5,7 +5,7 @@
       "trade_id": "RH:2026-11-17",
       "signal_date": "2026-11-17",
       "entry_policy": "next_regular_open",
-      "status": "PENDING_ENTRY",
+      "status": "OPEN",
       "entry_reference_price": 115.6,
       "exit_pcts": {
         "tp1": 10.000000000000009,
@@ -13,16 +13,16 @@
         "tp3": 19.999999999999996,
         "stop": -7.000000000000006
       },
-      "entry_date": "2026-11-17",
-      "entry_price": 115.6,
-      "T1": 127.16000000000001,
-      "T2": 128.316,
-      "T3": 138.72,
-      "STOP": 107.50799999999998,
-      "MAE_pct": 0.0,
-      "MAE_date": null,
-      "MFE_pct": 0.0,
-      "MFE_date": null,
+      "entry_date": "2026-11-18",
+      "entry_price": 115.02999877929688,
+      "T1": 126.53299865722657,
+      "T2": 127.68329864501955,
+      "T3": 138.03599853515624,
+      "STOP": 106.97789886474608,
+      "MAE_pct": -0.46074831341497147,
+      "MAE_date": "2026-11-18",
+      "MFE_pct": 3.6381792601974494,
+      "MFE_date": "2026-11-18",
       "filter_score": null,
       "z_ncp": null,
       "coi_pct": null,
@@ -43,7 +43,29 @@
         "x": "posted",
         "x_attempts": 1,
         "x_id": "2123066297986756788"
-      }
+      },
+      "original_entry_price": 115.02999877929688,
+      "original_levels": {
+        "T1": 126.53299865722657,
+        "T2": 127.68329864501955,
+        "T3": 138.03599853515624,
+        "STOP": 106.97789886474608
+      },
+      "split_factor": 1.0,
+      "quantity_factor": 1.0,
+      "corporate_actions": [],
+      "price_basis": "split_normalized_price_only",
+      "price_basis_asof": "2026-11-18T21:18:03.035656+00:00",
+      "excursion_bounds": {
+        "mae_pct_min": -0.46074831341497147,
+        "mae_pct_max": -0.46074831341497147,
+        "mfe_pct_min": 3.6381792601974494,
+        "mfe_pct_max": 3.6381792601974494,
+        "exact": true,
+        "method": "completed_daily_next_open_v1"
+      },
+      "execution_method": "completed_daily_next_open_v1",
+      "observations_asof": "2026-11-18T21:18:03.036714Z"
     }
   ]
 }
