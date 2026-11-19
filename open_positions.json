@@ -19,9 +19,9 @@
       "T2": 127.68329864501955,
       "T3": 138.03599853515624,
       "STOP": 106.97789886474608,
-      "MAE_pct": -0.46074831341497147,
-      "MAE_date": "2026-11-18",
-      "MFE_pct": 3.6381792601974494,
+      "MAE_pct": -4.585761611629524,
+      "MAE_date": "2026-11-19",
+      "MFE_pct": 3.642530197227445,
       "MFE_date": "2026-11-18",
       "filter_score": null,
       "z_ncp": null,
@@ -55,17 +55,17 @@
       "quantity_factor": 1.0,
       "corporate_actions": [],
       "price_basis": "split_normalized_price_only",
-      "price_basis_asof": "2026-11-18T22:36:21.739912+00:00",
+      "price_basis_asof": "2026-11-19T21:18:15.665546+00:00",
       "excursion_bounds": {
-        "mae_pct_min": -0.46074831341497147,
-        "mae_pct_max": -0.46074831341497147,
-        "mfe_pct_min": 3.6381792601974494,
-        "mfe_pct_max": 3.6381792601974494,
+        "mae_pct_min": -4.585761611629524,
+        "mae_pct_max": -4.585761611629524,
+        "mfe_pct_min": 3.642530197227445,
+        "mfe_pct_max": 3.642530197227445,
         "exact": true,
         "method": "completed_daily_next_open_v1"
       },
       "execution_method": "completed_daily_next_open_v1",
-      "observations_asof": "2026-11-18T22:36:21.741225Z"
+      "observations_asof": "2026-11-19T21:18:15.667309Z"
     }
   ]
 }
