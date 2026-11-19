@@ -77,6 +77,41 @@ class PostTextTests(unittest.TestCase):
         self.assertIn('Adverse excursion: -3.2% (daily-bar bounds)', text)
         self.assertIn('Favorable excursion: +10.0% to +11.4% (daily-bar bounds)', text)
 
+    def test_a_noisy_chain_is_shown_as_a_note_not_as_a_failed_gate(self):
+        """Admission policy 2.1 (2026-11-19): a trade taken on a noisy chain must not print a red X."""
+        noisy = copy.deepcopy(UUUU)
+        noisy['noise'] = {'skew_std': 31.2, 'noisy': True, 'status': 'fail'}
+        for text in (alert.format_signal(noisy, [], taken=[noisy]), x_post.format_signal_for_x(noisy, [], taken=[noisy])):
+            self.assertIn('⚠️ chain noise', text)
+            self.assertIn('not a gate', text)
+            self.assertNotIn('❌ chain noise', text)
+            self.assertNotIn('both disqualifiers', text.lower())
+        for text in (alert.format_signal(UUUU, [], taken=[UUUU]), x_post.format_signal_for_x(UUUU, [], taken=[UUUU])):
+            self.assertIn('✅ chain noise', text)                       # a clean chain still reads clean
+
+    def test_an_unscheduled_earnings_date_is_stated_as_an_estimate(self):
+        c = copy.deepcopy(UUUU)
+        c['vetoes']['details']['earnings'] = {'pass': True, 'status': 'pass', 'next_earnings': None,
+                                              'basis': 'scanner_estimate', 'estimated_days': 98}
+        text = alert.format_signal(c, [], taken=[c])
+        self.assertIn('Next earnings: not scheduled yet, estimated about 98 days away', text)
+        self.assertIn('Next earnings: 2026-11-02', alert.format_signal(UUUU, [], taken=[UUUU]))
+
+    def test_watch_list_names_an_unmeasured_chain_and_never_crashes_on_it(self):
+        weak = copy.deepcopy(UUUU)
+        weak['legs'] = {**weak['legs'], 'tradeable': False, 'strong_skew': False}
+        unmeasured = copy.deepcopy(weak)
+        unmeasured['ticker'] = 'GAP'
+        unmeasured['noise'] = {'skew_std': None, 'noisy': True, 'status': 'unknown'}
+        noisy = copy.deepcopy(weak)
+        noisy['ticker'] = 'JUMPY'
+        noisy['noise'] = {'skew_std': 31.2, 'noisy': True, 'status': 'fail'}
+        text = alert.format_watch_list([unmeasured, noisy])
+        self.assertIn('GAP', text)
+        self.assertIn('chain not measured', text)
+        self.assertNotIn('NOISY chain', text)                          # no longer a blocking reason
+        self.assertIn('weak on both legs', text)
+
 
 if __name__ == '__main__':
     unittest.main()

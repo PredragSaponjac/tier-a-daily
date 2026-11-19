@@ -83,11 +83,13 @@ def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None
         f"   (bar: ≤ {_sel['strong_skew_max']:.0f})",
         f"  {_yn(L.get('strong_cushion'))} vol-adj cushion {_f(_vc, '{:.1f}')}x"
         f"   (bar: ≥ {_sel['strong_vol_cushion_min']:.1f}x)",
-        "HARD DISQUALIFIERS — both must be clear:",
+        "HARD DISQUALIFIER — must be clear:",
         f"  {_yn(_cp is not None and _cp >= 0)} spot above put wall"
         f"   ({_f(_cp, '{:+.1f}')}% vs wall)",
-        f"  {_yn(not _nz.get('noisy'))} chain noise std {_f(_std, '{:.1f}')}"
-        f"   (bar: ≤ {_sel['skew_noise_std_max']:.0f})",
+        # Admission policy 2.1 (2026-11-19): a noisy chain is shown, it no longer blocks.
+        "ALSO MEASURED — noted, not a gate:",
+        f"  {'⚠️' if _nz.get('noisy') else '✅'} chain noise std {_f(_std, '{:.1f}')}"
+        f"   (above {_sel['skew_noise_std_max']:.0f} = jumpy option quotes)",
         f"→ TRADEABLE: {'YES' if L.get('tradeable') else 'NO'}",
     ]
     setup_str = '\n'.join(setup_lines)
@@ -104,8 +106,12 @@ def format_signal(c: dict, day_pool: list[dict], taken: list[dict] | None = None
     lines.append(f"• near_dte: {c['near_dte']}")
     lines.append(f"• Put wall: ${pwall} (spot {'+' if cushion>=0 else ''}{cushion:.1f}% {'above' if cushion>=0 else 'below'})")
     lines.append(f"• Sector: {c.get('sector','—')}")
-    if v and v.get('details', {}).get('earnings', {}).get('next_earnings'):
-        lines.append(f"• Next earnings: {v['details']['earnings']['next_earnings']}")
+    _earn = ((v or {}).get('details') or {}).get('earnings') or {}
+    if _earn.get('next_earnings'):
+        lines.append(f"• Next earnings: {_earn['next_earnings']}")
+    elif _earn.get('basis') == 'scanner_estimate':
+        # Admission policy 2.1: the company has just reported; no date is scheduled yet.
+        lines.append(f"• Next earnings: not scheduled yet, estimated about {_earn.get('estimated_days')} days away")
     lines.append("")
     # UW SECTION IS OMITTED ENTIRELY when there is no UW data (subscription ended
     # 2026-08-13). Printing "0/4" would be a false claim (we never read the flow),
@@ -235,8 +241,9 @@ def format_watch_list(watch: list) -> str:
         L = c.get('legs', {})
         skew = c.get('skew')
         vc = L.get('vol_cushion')
-        if c.get('noise', {}).get('noisy'):
-            why = f"NOISY chain (skew std {c['noise']['skew_std']:.0f})"
+        if (c.get('noise') or {}).get('status') == 'unknown':
+            # Policy 2.1: a noisy chain no longer blocks; only one that could not be measured does.
+            why = 'chain not measured (too little history)'
         elif L.get('cushion_pct') is not None and L.get('cushion_pct') < 0:
             why = 'spot below put wall'
         elif L.get('cushion_pct') is not None and L.get('cushion_pct') > LEGS.MAX_CUSHION_PCT:

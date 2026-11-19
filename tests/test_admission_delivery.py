@@ -166,6 +166,47 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(pub['telegram'], 'sent')
         self.assertEqual(pub['telegram_message_id'], '110')
 
+    def test_decision_run_admits_a_noisy_chain_and_holds_back_an_unmeasured_one(self):
+        """Admission policy 2.1 through the real daily routine, as a dry run: nothing sent or stored."""
+        def cand(ticker, **extra):
+            base = dict(ticker=ticker, scan_date='2026-11-20', spot_close=100., spot_return_pct=-12., skew_change_5d=-9.,
+                        near_skew=-9., near_dte=3, put_wall_strike=95., put_wall_oi_change=0, skew=-9., atm_iv=80.,
+                        sector='Technology', industry='Software', dte_earnings=40, sector_iv_rank=50., iv_hv_ratio=1.,
+                        screen_version='nine-session-v2', window_sessions=9)
+            return {**base, **extra}
+        cands = [cand('CLEAN'), cand('JUMPY'), cand('GAPPY'), cand('WEAK', skew=0., put_wall_strike=99.)]
+        jumpy = {'skew_std': 31., 'skew_range': 80., 'noisy': True, 'status': 'fail', 'reason': 'NOISY chain: skew std 31 > 20'}
+        readings = {'CLEAN': {'skew_std': 5., 'skew_range': 9., 'noisy': False, 'status': 'pass', 'reason': 'chain ok (skew std 5)'},
+                    'JUMPY': jumpy, 'WEAK': jumpy,
+                    'GAPPY': {'skew_std': None, 'skew_range': None, 'noisy': True, 'status': 'unknown',
+                              'reason': 'noise gate UNAVAILABLE: 1 day of history'}}
+        passed = {'pass': True, 'status': 'pass', 'reasons': [], 'expected_entry_session': '2026-11-23',
+                  'details': {'earnings': {'pass': True, 'status': 'pass', 'next_earnings': None,
+                                           'basis': 'scanner_estimate', 'estimated_days': 40},
+                              'liquidity': {'pass': True, 'status': 'pass', 'total_oi': 9000}}}
+        out = io.StringIO()
+        with patch('sys.argv', ['main.py', '--dry-run']), patch.object(main, 'load_dotenv'), \
+                patch.object(main, 'read_tier_a', return_value=(cands, '2026-11-20')), \
+                patch.object(main, 'enrich_candidates',
+                             side_effect=lambda cs, **_: [dict(c, filter={'score': None, 'conditions': {}, 'raw': {}}) for c in cs]), \
+                patch.object(main, 'run_vetoes', return_value=passed), \
+                patch.object(data_quality, 'assess_noise', side_effect=lambda ticker, day, **_: readings[ticker]), \
+                contextlib.redirect_stdout(out):
+            main._main()
+        text = out.getvalue()
+        tracking = next(line for line in text.splitlines() if line.startswith('TAKE-ALL'))
+        self.assertIn('2 tradeable', tracking)
+        self.assertTrue("'CLEAN'" in tracking and "'JUMPY'" in tracking)
+        self.assertFalse('GAPPY' in tracking or 'WEAK' in tracking)
+        table = {line.split()[1]: line for line in text.splitlines() if line.strip()[:1].isdigit() and len(line.split()) > 4}
+        self.assertIn('noisy chain, noted only', table['JUMPY'])
+        self.assertIn('UNMEASURED', table['GAPPY'])
+        self.assertIn('NEITHER', table['WEAK'])
+        self.assertIn('chain not measured', text)                                   # GAPPY on the watch list
+        self.assertIn('Next earnings: not scheduled yet, estimated about 40 days away', text)
+        self.assertIn('(dry-run: not sending', text)
+        self.assertIsNone(archive.load_archive('2026-11-20'))                        # a dry run stores nothing
+
 
 class GateAndCalendarTests(unittest.TestCase):
     def test_unknown_earnings_blocks(self):
@@ -188,6 +229,60 @@ class GateAndCalendarTests(unittest.TestCase):
                 patch.object(vetoes, 'check_liquidity', return_value=vetoes._result('pass', 'liquid')):
             gate = vetoes.run_vetoes({'ticker': 'SMH', 'scan_date': '2026-10-02', 'sector': 'ETF'})
         self.assertEqual((gate['pass'], gate['status']), (True, 'pass'))
+
+    def test_unscheduled_earnings_pass_only_on_a_far_scanner_estimate(self):
+        """Admission policy 2.1 (2026-11-19): after a report Yahoo's calendar is empty for weeks.
+        That is not missing data when the scanner's own estimate puts the next report far away."""
+        with patch.object(vetoes.yf, 'Ticker', return_value=SimpleNamespace(calendar={})):
+            far = vetoes.check_earnings('AMC', '2026-11-18', scanner_dte=98)
+            edge = vetoes.check_earnings('TEST', '2026-11-18', scanner_dte=30)
+            blocked = [vetoes.check_earnings('TEST', '2026-11-18', scanner_dte=x)
+                       for x in (29, 20, 0, None, float('nan'), 'soon', True)]
+        self.assertEqual((far['pass'], far['status'], far['basis'], far['estimated_days'], far['next_earnings']),
+                         (True, 'pass', 'scanner_estimate', 98, None))
+        self.assertTrue(edge['pass'])
+        for r in blocked:
+            self.assertEqual((r['pass'], r['status']), (False, 'unknown'))
+            self.assertIn('No current future earnings date', r['reason'])
+
+    def test_a_scheduled_date_or_a_failed_lookup_ignores_the_scanner_estimate(self):
+        soon = SimpleNamespace(calendar={'Earnings Date': [dt.date(2026, 11, 25)]})
+        with patch.object(vetoes.yf, 'Ticker', return_value=soon):
+            r = vetoes.check_earnings('TEST', '2026-11-18', scanner_dte=98)
+        self.assertEqual((r['pass'], r['status']), (False, 'fail'))            # 7 days out: the confirmed date wins
+        with patch.object(vetoes.yf, 'Ticker', side_effect=RuntimeError('provider down')):
+            r = vetoes.check_earnings('TEST', '2026-11-18', scanner_dte=98)
+        self.assertEqual((r['pass'], r['status']), (False, 'unknown'))         # a failed lookup still blocks
+
+    def test_run_vetoes_hands_the_scanner_estimate_to_the_earnings_check(self):
+        with patch.object(vetoes.yf, 'Ticker', return_value=SimpleNamespace(calendar={})), \
+                patch.object(vetoes, 'check_liquidity', return_value=vetoes._result('pass', 'liquid')):
+            passed = vetoes.run_vetoes({'ticker': 'AMC', 'scan_date': '2026-11-17', 'sector': 'Communication Services',
+                                        'dte_earnings': 98})
+            blocked = vetoes.run_vetoes({'ticker': 'SRPT', 'scan_date': '2026-11-10', 'sector': 'Healthcare',
+                                         'dte_earnings': None})
+        self.assertEqual((passed['pass'], passed['status'], passed['details']['earnings']['basis']),
+                         (True, 'pass', 'scanner_estimate'))
+        self.assertEqual((blocked['pass'], blocked['status']), (False, 'unknown'))
+
+    def test_a_noisy_chain_is_recorded_but_only_an_unmeasured_chain_blocks(self):
+        """Admission policy 2.1: noisy = shown, not vetoed; missing history never admits."""
+        self.assertTrue(main.chain_admissible({'status': 'pass', 'noisy': False, 'skew_std': 5.1}))
+        self.assertTrue(main.chain_admissible({'status': 'fail', 'noisy': True, 'skew_std': 31.0}))
+        for unmeasured in ({'status': 'unknown', 'noisy': True, 'skew_std': None}, {'noisy': False}, {}, None):
+            self.assertFalse(main.chain_admissible(unmeasured))
+        self.assertEqual((main.ADMISSION_POLICY['version'], main.ADMISSION_POLICY['noisy_chain_blocks'],
+                          main.ADMISSION_POLICY['unmeasured_chain_blocks']), ('2.1', False, True))
+
+    def test_every_archived_decision_names_the_admission_policy(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(archive, 'ARCHIVE_DIR', Path(tmp) / 'signals'), \
+                patch.object(main, 'checkpoint'), patch.object(main, 'run_outbox', return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            main.record_and_deliver('2026-11-20', [], None, 3, 'No Tier A candidates today.', 'none')
+            main.record_and_deliver('2026-11-23', [], None, 3, 'note', 'none', context={'max_concurrent': 6})
+            first, second = archive.load_archive('2026-11-20'), archive.load_archive('2026-11-23')
+        self.assertEqual(first['context']['admission_policy'], main.ADMISSION_POLICY)
+        self.assertEqual((second['context']['max_concurrent'], second['context']['admission_policy']['version']), (6, '2.1'))
 
     def test_partial_options_data_does_not_pass_liquidity(self):
         frame = pd.DataFrame({'openInterest':[1000., None]})

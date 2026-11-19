@@ -150,6 +150,9 @@ def archive_daily_run(scan_date: str, enriched: list[dict], picked_ticker: str |
             'veto_reasons': v.get('reasons', []),
             'veto_details': {
                 'earnings_next': v.get('details', {}).get('earnings', {}).get('next_earnings'),
+                # admission policy 2.1: set when an unscheduled date passed on the scanner's estimate
+                'earnings_basis': v.get('details', {}).get('earnings', {}).get('basis'),
+                'earnings_estimated_days': v.get('details', {}).get('earnings', {}).get('estimated_days'),
                 'liquidity_oi': v.get('details', {}).get('liquidity', {}).get('total_oi'),
             },
             # Edge-validation metrics (added 2026-07-28) — research logging only

@@ -12,8 +12,16 @@ Audit findings, implemented remedies and verification limits are recorded in
   Ten consecutive XNYS session observations are required. Sigma annualization uses
   the same session count. Legacy SQLite column `skew_change_5d` remains an alias;
   `screen_version` and `window_sessions` identify the actual calculation.
-- Earnings, options OI and chain-noise gates must have verified data. Unknown values
-  block admission. UW is supplementary ranking information, not a required gate.
+- Earnings, options OI and the chain-quality reading must have verified data. Unknown
+  values block admission. UW is supplementary ranking information, not a required gate.
+- **Admission policy 2.1 (owner decision 2026-11-19).** Two changes to who is admitted:
+  a noisy option chain is recorded and shown but no longer blocks, while a chain with too
+  little history to measure still does; and an unscheduled earnings date no longer blocks
+  when the scanner's own estimate puts the next report at least 30 days away, which is
+  the case just after a company reports. The strong-leg and put-wall gates, the 14-day
+  earnings buffer, the liquidity floor and the bracket are unchanged. Every archived
+  decision records the policy under `context.admission_policy`. Evidence, limits and the
+  review rule are in `orca-bot/tier_a_review_2026-11-19`. Rollback: tag `pre-admission-2.1`.
 - Eligible names reserve up to six slots, including pending entries. Each paper slot
   represents 1/6 of the book. Ranking and take-all benefits remain unproven.
 - A signal records a reference quote and its provenance. New paper entries use the

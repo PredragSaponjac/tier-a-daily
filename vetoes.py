@@ -11,13 +11,42 @@ def _result(status, reason, **data):
     return {'pass': status == 'pass', 'status': status, 'reason': reason, **data}
 
 
-def check_earnings(ticker, entry_date, within_days=None, sector=None):
+# ADMISSION POLICY 2.1 (owner decision 2026-11-19, after the process review in
+# orca-bot/tier_a_review_2026-11-19). For weeks after a company reports, Yahoo's calendar
+# holds NO future date, because the next one is not scheduled yet. That is the safest
+# earnings state there is, not missing data, yet it blocked 33 of the 69 screen candidates
+# between 2026-10-05 and 2026-11-18; 28 of those had just reported. The scanner already
+# stores Yahoo's own estimate of the next report (skew_tracker: the calendar, then the
+# earnings-dates table) point-in-time in the candidate as dte_earnings. When the calendar
+# answers and has no future date, that estimate decides: far enough away passes; missing
+# or near stays unknown and stays blocked. A failed lookup is still unknown.
+# An ESTIMATED date gets twice the 14-day buffer of a confirmed one, rounded up.
+ESTIMATED_EARNINGS_MIN_DAYS = 30
+
+
+def _no_scheduled_date(scanner_dte):
+    """The calendar answered and holds no future date; the scanner's estimate decides."""
+    try:
+        days = math.nan if isinstance(scanner_dte, bool) else float(scanner_dte)
+    except (TypeError, ValueError):
+        days = math.nan
+    if math.isfinite(days) and days >= ESTIMATED_EARNINGS_MIN_DAYS:
+        return _result('pass', f'No earnings date scheduled yet; estimated {int(days)} days away '
+                               f'(minimum {ESTIMATED_EARNINGS_MIN_DAYS} for an estimate)',
+                       next_earnings=None, estimated_days=int(days), basis='scanner_estimate')
+    return _result('unknown', 'No current future earnings date; admission blocked', next_earnings=None)
+
+
+def check_earnings(ticker, entry_date, within_days=None, sector=None, scanner_dte=None):
     """Require a future earnings date; buffer is explicitly CALENDAR days.
 
     Funds are the exception (review 2026-10-04): an ETF never reports earnings, so "no
     earnings date" is not missing data for it, and Yahoo returns no calendar at all for
     funds (SMH and IBIT both came back as HTTP errors). Without this every ETF candidate
     was blocked forever as 'unknown'. The scanner tags funds with sector 'ETF'.
+
+    scanner_dte is the candidate's dte_earnings; it is consulted only when the calendar
+    has no future date (admission policy 2.1 above).
     """
     if sector == 'ETF':
         return _result('pass', 'ETF/fund: no earnings to report (not applicable)',
@@ -33,7 +62,7 @@ def check_earnings(ticker, entry_date, within_days=None, sector=None):
         entry = dt.date.fromisoformat(str(entry_date)[:10])
         future = sorted(x for x in normalized if x >= entry)
         if not future:
-            return _result('unknown', 'No current future earnings date; admission blocked', next_earnings=None)
+            return _no_scheduled_date(scanner_dte)
         earliest = future[0]
         delta = (earliest - entry).days
         return _result('fail' if delta <= within_days else 'pass',
@@ -70,7 +99,8 @@ def check_liquidity(ticker, min_oi=None):
 
 def run_vetoes(candidate):
     entry = next_session(candidate['scan_date']).isoformat()
-    details = {'earnings': check_earnings(candidate['ticker'], entry, sector=candidate.get('sector')),
+    details = {'earnings': check_earnings(candidate['ticker'], entry, sector=candidate.get('sector'),
+                                          scanner_dte=candidate.get('dte_earnings')),
                'liquidity': check_liquidity(candidate['ticker'])}
     failed = [x['reason'] for x in details.values() if not x['pass']]
     return {'pass': not failed, 'status': 'unknown' if any(x['status'] == 'unknown' for x in details.values())

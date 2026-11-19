@@ -127,15 +127,16 @@ def format_signal_for_x(c: dict, day_pool: list[dict], taken: list[dict] | None 
     _yn = lambda ok: '✅' if ok else '❌'
     _f = lambda v, fmt: (fmt.format(v) if isinstance(v, (int, float)) else 'n/a')
     _setup = '\n'.join([
-        "Gates (needs ≥1 qualifying leg, both disqualifiers clear):",
+        "Gates (needs ≥1 qualifying leg and spot above the put wall):",
         f"  {_yn(L.get('strong_skew'))} structural skew {_f(_sk, '{:+.1f}')} "
         f"(bar ≤{_sel['strong_skew_max']:.0f})",
         f"  {_yn(L.get('strong_cushion'))} vol-adj cushion {_f(_vc, '{:.1f}')}x "
         f"(bar ≥{_sel['strong_vol_cushion_min']:.1f}x)",
         f"  {_yn(_cp is not None and _cp >= 0)} above put wall "
         f"({_f(_cp, '{:+.1f}')}%)",
-        f"  {_yn(not _nz.get('noisy'))} chain noise {_f(_nz.get('skew_std'), '{:.1f}')} "
-        f"(bar ≤{_sel['skew_noise_std_max']:.0f})",
+        # Admission policy 2.1 (2026-11-19): a noisy chain is shown, it no longer blocks.
+        f"  {'⚠️' if _nz.get('noisy') else '✅'} chain noise {_f(_nz.get('skew_std'), '{:.1f}')} "
+        f"(noted, not a gate; above {_sel['skew_noise_std_max']:.0f} = jumpy quotes)",
     ])
 
     parts = []

@@ -35,6 +35,31 @@ from state_lock import checkpoint, portfolio_lock
 from market_time import now_eastern, is_session
 
 
+# ADMISSION POLICY 2.1. Owner decision 2026-11-19 ("fix this to follow better rules") after the
+# process review in orca-bot/tier_a_review_2026-11-19. Two changes, nothing else:
+#   1. A NOISY chain no longer blocks a candidate that has a strong leg. From March to October
+#      the screen candidates rejected for a noisy chain hit the target first in 17 of 23 cases,
+#      against 64 of 141 for clean chains; the gate's founding case (SMMT 6/9) reaches the
+#      target under the live next-open entry; and a large skew move, which is what the screen
+#      looks for, is exactly what raises the noise reading. A chain with too little history to
+#      measure ("unknown") still blocks: missing data never admits.
+#   2. vetoes.py: an unscheduled earnings date no longer blocks when the scanner's own estimate
+#      puts the next report at least 30 days away (the company has just reported).
+# Still in force: the strong-leg and put-wall gates, the 14-day earnings buffer, liquidity,
+# the bracket. parameters.json still words the noise reading as a no-trade gate; that file is
+# frozen with the research-v1 engine, so it is left untouched and this policy supersedes that
+# sentence. The research cohort (path_labels.qualifiers) never applied either rule, so nothing
+# it measures changes. Every archived decision carries this marker. Rollback: tag
+# pre-admission-2.1.
+ADMISSION_POLICY = {'version': '2.1', 'noisy_chain_blocks': False, 'unmeasured_chain_blocks': True,
+                    'unscheduled_earnings': 'passes when the scanner estimate is >= 30 days'}
+
+
+def chain_admissible(noise):
+    """Policy 2.1: only an UNMEASURED chain blocks; a noisy one is recorded and shown, not vetoed."""
+    return (noise or {}).get('status') in ('pass', 'fail')
+
+
 def select_taken(tradeable, top, open_tickers, sel, rank_key):
     """TAKE-ALL selection (parameters 1.1.0, user decision 2026-09-02). Pure, so preflight
     can test it.
@@ -190,6 +215,7 @@ def record_and_deliver(scan_date, enriched, picked, min_score, notes, telegram_t
     delivery = {'telegram': 'pending', 'positions': 'pending' if specs else 'n/a',
                 'x': x_state, 'sheet': 'pending' if specs else 'n/a', 'complete': False}
     box = {'telegram': telegram_text, 'x': x_text, 'positions': specs, 'featured': featured}
+    context = {**(context or {}), 'admission_policy': ADMISSION_POLICY}   # which rules decided this day
     archive.archive_daily_run(scan_date, enriched, picked, min_score, P.version(), notes=notes,
                               taken_tickers=[t['ticker'] for t in taken], delivery=delivery,
                               outbox=box, context=context)
@@ -295,8 +321,8 @@ def _main():
     sel = P.selection_params()
     for c in enriched:
         c['legs'] = LEGS.assess(c, sel['strong_skew_max'], sel['strong_vol_cushion_min'])
-        # DATA-QUALITY gate (earned by SMMT 6/9): reject signals off a noisy/thin
-        # options chain — the legs are only as trustworthy as the data they're computed on.
+        # Chain-quality reading. Since admission policy 2.1 a NOISY chain is recorded and shown
+        # but does not block; only a chain that could not be measured does (chain_admissible).
         c['noise'] = DQ.assess_noise(c['ticker'], c['scan_date'], db_path=str(SKEW_DB),
                                      std_threshold=sel['skew_noise_std_max'])
         # EDGE-VALIDATION logging (2026-07-27 edge hunt) — research only, has NO
@@ -311,7 +337,7 @@ def _main():
     vetoed = [c for c in enriched if not c['vetoes']['pass']]
     tradeable = [c for c in survivors
                  if ((not sel['require_strong_leg']) or c['legs']['tradeable'])
-                 and c['noise'].get('status') == 'pass' and not c['noise']['noisy']
+                 and chain_admissible(c['noise'])
                  and c.get('screen_version') == P.all_params()['screen']['version']]
 
     print(f"\n{'rank':>4s} {'tkr':6s} {'UW':>4s} {'veto':5s} {'legs':10s} note")
@@ -319,12 +345,12 @@ def _main():
         s = c['filter'].get('score', '—')
         v_status = '—' if c['vetoes']['pass'] else 'X'
         L = c['legs']
-        if c['noise']['noisy']:
-            leg_tag = 'NOISY'
-            note = c['noise']['reason']
+        if not chain_admissible(c['noise']):
+            leg_tag = 'UNMEASURED'
+            note = c['noise'].get('reason', 'chain not measured')
         else:
             leg_tag = ('STRONG' if L['tradeable'] else 'NEITHER')
-            note = L['reason']
+            note = L['reason'] + (' | noisy chain, noted only' if c['noise'].get('noisy') else '')
         print(f"  {i:>3d} {c['ticker']:6s} {str(s):>4s} {v_status:>5s} {leg_tag:10s} {note}")
 
     # 5. Pick top: UW >= min_score is a PRIORITY (picked first); if none of the
