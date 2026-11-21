@@ -103,6 +103,57 @@ def _approved(path):
     return relative
 
 
+# PUSH RETRY (2026-11-20). The afternoon run failed on 11/05, 11/13 and 11/17 with one failed
+# push each, always after several checkpoints had been pushed seconds apart and landed; the
+# whole run then went red, the automatic retry redid a 40-minute scan and the alert came
+# late. Pushing the SAME commit again is idempotent, so a failure that can be temporary is
+# retried a few times. A competing remote push or a refusal is not temporary and still fails
+# at once: this never fetches, rebases or merges (see checkpoint's docstring).
+PUSH_RETRY_DELAYS = (2, 5, 10)          # seconds before the 2nd, 3rd and 4th attempt
+PUSH_NOT_TEMPORARY = ('remote moved', 'not allowed')
+# Labels only. Git's own text can hold the remote URL or a token, so none of it is ever
+# copied into an error, a log line or an alert; it is matched and thrown away.
+_PUSH_REASONS = (
+    ('remote ref busy', ('cannot lock ref', 'failed to lock', 'unable to lock', 'reference already exists')),
+    ('remote moved', ('non-fast-forward', 'fetch first', 'stale info')),
+    ('not allowed', ('protected branch', 'hook declined', 'permission', 'denied', 'authentication', 'http 403',
+                     'error: 403', 'http 401', 'error: 401')),
+    ('rate limited', ('rate limit', 'http 429', 'error: 429', 'abuse')),
+    ('server error', ('internal server error', 'http 500', 'http 502', 'http 503', 'http 504', 'error: 500',
+                      'error: 502', 'error: 503', 'error: 504', 'remote end hung up', 'unexpected disconnect')),
+    ('network', ('could not resolve', 'timed out', 'timeout', 'connection reset', 'connection was reset',
+                 'failed to connect', 'unable to access', 'tls', 'ssl')),
+)
+
+
+def _push_reason(text):
+    """A safe label for why a push failed; never any of Git's own words."""
+    low = (text or '').lower()
+    for label, needles in _PUSH_REASONS:
+        if any(needle in low for needle in needles):
+            return label
+    return 'unclassified'
+
+
+def _push(branch):
+    """Push HEAD to the branch, retrying the identical push when the failure can be temporary."""
+    reason, attempts = 'unclassified', len(PUSH_RETRY_DELAYS) + 1
+    for attempt in range(1, attempts + 1):
+        result = _git('push', 'origin', f'HEAD:refs/heads/{branch}', check=False)
+        if result.returncode == 0:
+            if attempt > 1:
+                print(f'[state-lock] checkpoint push succeeded on attempt {attempt} (earlier: {reason})', flush=True)
+            return
+        reason = _push_reason(f"{getattr(result, 'stderr', '') or ''} {getattr(result, 'stdout', '') or ''}")
+        if reason in PUSH_NOT_TEMPORARY or attempt == attempts:
+            break
+        delay = PUSH_RETRY_DELAYS[attempt - 1]
+        print(f'[state-lock] checkpoint push failed ({reason}); retrying the same push in {delay}s', flush=True)
+        time.sleep(delay)
+    raise StateCheckpointError(f'git push failed ({reason}, {attempt} attempt(s)); '
+                               'delivery state is not confirmed durable')
+
+
 def checkpoint(paths=None):
     """Persist approved state to origin in configured live workflows, or files locally.
 
@@ -135,7 +186,7 @@ def checkpoint(paths=None):
         _git('config', 'user.email', 'bot@tieradaily.local')
         _git('commit', '-m', f'Durable delivery checkpoint {trading_date().isoformat()}')
     # Push even with no staged difference: a preceding commit may have failed to push.
-    _git('push', 'origin', f'HEAD:refs/heads/{branch}')
+    _push(branch)
 
 
 if __name__ == '__main__':

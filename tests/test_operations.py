@@ -241,6 +241,112 @@ class CheckpointTests(unittest.TestCase):
         self.assertTrue(any(call[0] == 'push' for call in calls))
         self.assertFalse(any(call[0] in ('pull', 'rebase', 'merge') for call in calls))
 
+    SECRET = 'https://x-access-token:ghs_SECRETTOKEN@github.com/owner/repo'
+    PUSH = ('push', 'origin', 'HEAD:refs/heads/master')
+
+    def drive_checkpoint(self, pushes):
+        """Run checkpoint([]) against scripted push results -> (calls, sleeps, printed, error)."""
+        calls, sleeps, script = [], [], iter(pushes)
+
+        def git(*args, **kwargs):
+            calls.append(args)
+            if args[0] == 'push':
+                code, text = next(script)
+                return SimpleNamespace(returncode=code, stdout='', stderr=f'{text}\nerror: failed to push some refs to {self.SECRET}')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+        out = io.StringIO()
+        with patch.dict(os.environ, {'DURABLE_STATE_CHECKPOINT': 'git', 'GITHUB_REF_NAME': 'master'}), \
+                patch.object(SL, '_git', side_effect=git), patch.object(SL.time, 'sleep', side_effect=sleeps.append), \
+                redirect_stdout(out):
+            try:
+                SL.checkpoint([])
+                error = None
+            except SL.StateCheckpointError as exc:
+                error = str(exc)
+        return calls, sleeps, out.getvalue(), error
+
+    def assert_never_merges_or_leaks(self, calls, printed, error):
+        self.assertFalse(any(call[0] in ('pull', 'fetch', 'rebase', 'merge', 'reset') for call in calls))
+        self.assertTrue(all(call == self.PUSH for call in calls if call[0] == 'push'))      # the identical push only
+        for text in (printed, error or ''):
+            self.assertNotIn('SECRETTOKEN', text)
+            self.assertNotIn('github.com', text)
+
+    def test_a_temporary_push_failure_is_retried_with_the_identical_push(self):
+        """2026-11-20: one failed push failed the whole afternoon run on 11/05, 11/13 and 11/17."""
+        calls, sleeps, printed, error = self.drive_checkpoint([
+            (1, 'remote: Internal Server Error'), (128, 'error: RPC failed; HTTP 502 curl 22'), (0, '')])
+        self.assertIsNone(error)
+        self.assertEqual(sum(call[0] == 'push' for call in calls), 3)
+        self.assertEqual(sleeps, [2, 5])
+        self.assertIn('succeeded on attempt 3', printed)
+        self.assert_never_merges_or_leaks(calls, printed, error)
+
+    def test_a_competing_remote_push_fails_at_once_and_is_never_merged(self):
+        for text in (' ! [rejected]        HEAD -> master (fetch first)', ' ! [rejected] HEAD -> master (non-fast-forward)'):
+            calls, sleeps, printed, error = self.drive_checkpoint([(1, text)])
+            self.assertIn('git push failed (remote moved, 1 attempt(s))', error)
+            self.assertIn('not confirmed durable', error)
+            self.assertEqual((sum(call[0] == 'push' for call in calls), sleeps), (1, []))
+            self.assert_never_merges_or_leaks(calls, printed, error)
+
+    def test_a_refused_push_is_not_retried(self):
+        calls, sleeps, printed, error = self.drive_checkpoint([(128, 'remote: Permission to owner/repo.git denied to bot.')])
+        self.assertIn('git push failed (not allowed, 1 attempt(s))', error)
+        self.assertEqual(sleeps, [])
+        self.assert_never_merges_or_leaks(calls, printed, error)
+
+    def test_a_push_that_keeps_failing_gives_up_loudly_after_four_tries(self):
+        calls, sleeps, printed, error = self.drive_checkpoint([(1, "remote: error: cannot lock ref 'refs/heads/master'")] * 4)
+        self.assertIn('git push failed (remote ref busy, 4 attempt(s))', error)
+        self.assertEqual((sum(call[0] == 'push' for call in calls), sleeps), (4, [2, 5, 10]))
+        self.assert_never_merges_or_leaks(calls, printed, error)
+        calls, sleeps, printed, error = self.drive_checkpoint([(1, 'something Git has never said before')] * 4)
+        self.assertIn('git push failed (unclassified, 4 attempt(s))', error)                # unknown = may be temporary
+        self.assertEqual(len(sleeps), 3)
+
+    def test_real_git_checkpoint_lands_and_a_rival_push_fails_it_at_once_unmerged(self):
+        """Real Git, local bare remote: the happy path, and Git's own wording for a moved remote."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            tmp = Path(tmp)
+            run = lambda *a, cwd: subprocess.run(['git', *a], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+            run('init', '-q', '--bare', '-b', 'master', 'remote.git', cwd=tmp)
+            for name in ('bot', 'rival'):
+                run('clone', '-q', 'remote.git', name, cwd=tmp)
+                run('config', 'user.name', name, cwd=tmp / name)
+                run('config', 'user.email', f'{name}@test.local', cwd=tmp / name)
+            sleeps = []
+            with patch.dict(os.environ, {'DURABLE_STATE_CHECKPOINT': 'git', 'GITHUB_REF_NAME': 'master'}), \
+                    patch.object(SL, 'ROOT', tmp / 'bot'), patch.object(SL.time, 'sleep', side_effect=sleeps.append), \
+                    redirect_stdout(io.StringIO()):
+                (tmp / 'bot' / 'last_scan_am.json').write_text('{"n": 1}\n', encoding='utf-8')
+                SL.checkpoint(['last_scan_am.json'])
+                self.assertEqual(run('rev-parse', 'master', cwd=tmp / 'remote.git'), run('rev-parse', 'HEAD', cwd=tmp / 'bot'))
+                run('pull', '-q', 'origin', 'master', cwd=tmp / 'rival')                    # a rival writer moves the remote
+                (tmp / 'rival' / 'last_scan_pm.json').write_text('{"rival": true}\n', encoding='utf-8')
+                run('add', '-A', cwd=tmp / 'rival')
+                run('commit', '-q', '-m', 'rival writer', cwd=tmp / 'rival')
+                run('push', '-q', 'origin', 'HEAD:refs/heads/master', cwd=tmp / 'rival')
+                (tmp / 'bot' / 'last_scan_am.json').write_text('{"n": 2}\n', encoding='utf-8')
+                with self.assertRaisesRegex(SL.StateCheckpointError, r'git push failed \(remote moved, 1 attempt\(s\)\)'):
+                    SL.checkpoint(['last_scan_am.json'])
+            self.assertEqual(sleeps, [])                                                    # not retried
+            self.assertEqual(run('log', '--format=%s', '-1', 'master', cwd=tmp / 'remote.git'), 'rival writer')
+            self.assertEqual(run('rev-list', '--merges', '--count', 'HEAD', cwd=tmp / 'bot'), '0')   # nothing merged
+
+    def test_push_failure_labels(self):
+        cases = {"! [remote rejected] HEAD -> master (cannot lock ref 'refs/heads/master': is at a but expected b)": 'remote ref busy',
+                 '! [rejected] HEAD -> master (fetch first)': 'remote moved',
+                 'remote: Internal Server Error': 'server error',
+                 'fatal: unable to access: The requested URL returned error: 503': 'server error',
+                 'fatal: unable to access: Connection was reset': 'network',
+                 'remote: You have exceeded a secondary rate limit': 'rate limited',
+                 '! [remote rejected] HEAD -> master (protected branch hook declined)': 'not allowed',
+                 '': 'unclassified', None: 'unclassified'}
+        for text, label in cases.items():
+            self.assertEqual(SL._push_reason(text), label, text)
+        self.assertEqual(SL.PUSH_NOT_TEMPORARY, ('remote moved', 'not allowed'))
+
     def test_source_or_external_paths_cannot_enter_checkpoint_commit(self):
         with patch.dict(os.environ, {'DURABLE_STATE_CHECKPOINT': 'git', 'GITHUB_REF_NAME': 'master'}), patch.object(SL, '_git') as git:
             for path in ('main.py', '../outside.json'):
