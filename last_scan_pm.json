@@ -1,20 +1,20 @@
 {
   "scan": "PM",
-  "latest_scan_date": "2026-11-20",
-  "utc": "2026-11-20T21:53:00.487151+00:00",
-  "candidate_log_rows": 100113,
-  "skew_daily_rows": 100113,
-  "fixed_strike_vol_rows": 590992,
-  "db_bytes": 287182848,
+  "latest_scan_date": "2026-11-23",
+  "utc": "2026-11-23T21:52:40.329932+00:00",
+  "candidate_log_rows": 100773,
+  "skew_daily_rows": 100773,
+  "fixed_strike_vol_rows": 594918,
+  "db_bytes": 290992128,
   "db_generation": {
-    "name": "skewdb-20261120T215211Z-44818252846_1.db",
-    "sha256": "84997ae0d044d493ab19d05a26319c85c9ee073bd4eac255305d9c72cc5e6ef9",
-    "bytes": 287182848
+    "name": "skewdb-20261123T215140Z-45267189525_1.db",
+    "sha256": "4e71a0b20d4de59a9755b897cf2027864b63e8711b12a77abac03eeb39f9184e",
+    "bytes": 290992128
   },
-  "decision_run_id": "gh44818252846_1_50a23bade0aa451593ad532f7370fde8",
+  "decision_run_id": "gh45267189525_1_891bc8c1cc204c0eb06acd4d368be2ec",
   "decision_db_generation": {
-    "name": "skewdb-20261120T215211Z-44818252846_1.db",
-    "sha256": "84997ae0d044d493ab19d05a26319c85c9ee073bd4eac255305d9c72cc5e6ef9",
-    "bytes": 287182848
+    "name": "skewdb-20261123T215140Z-45267189525_1.db",
+    "sha256": "4e71a0b20d4de59a9755b897cf2027864b63e8711b12a77abac03eeb39f9184e",
+    "bytes": 290992128
   }
 }
