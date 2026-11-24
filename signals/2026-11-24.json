@@ -934,11 +934,12 @@
     }
   ],
   "delivery": {
-    "telegram": "pending",
+    "telegram": "inflight",
     "positions": "n/a",
     "x": "n/a",
     "sheet": "n/a",
-    "complete": false
+    "complete": false,
+    "telegram_attempts": 1
   },
   "outbox": {
     "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-11-24\n\n6 Tier A candidate(s) surfaced, but none qualified \u2014 each was either vetoed or WEAK ON BOTH legs (no deep skew capitulation AND no real vol-adjusted cushion).\nNO TRADE today \u2014 we don't force weak-on-both setups (the SYM/RGTI lesson).\nNext update: tomorrow after the 3:05 PM CT scan.\n\u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014 \u2014\n\ud83d\udccb WATCH LIST \u2014 surfaced but NOT auto-traded (your call):\n(held back by the gate; flow can be right even when structure says wait \u2014 e.g. CAVA 6/8 +11%)\n  \u2022 PCT   skew -43, cushion -1.5x | spot below put wall\n      \ud83d\udd2c edge: rank 95.1 | slope -10.07 | iv/hv 1.46 \u2192 combo \u2705 | stop 0.33xATR\n  \u2022 SMR   skew -20, cushion -2.4x | spot below put wall\n      \ud83d\udd2c edge: rank 82.0 | slope 0.2 | iv/hv 0.99 \u2192 combo \u2014 | stop 0.49xATR\n  \u2022 PLUG  skew -25, cushion -9.4x | spot below put wall\n      \ud83d\udd2c edge: rank 65.6 | slope -0.63 | iv/hv 0.92 \u2192 combo \u2014 | stop 0.59xATR\n  \u2022 FLY   skew +5, cushion -1.4x | spot below put wall\n      \ud83d\udd2c edge: rank 68.9 | slope -10.23 | iv/hv 0.82 \u2192 combo \u2705 | stop 0.48xATR",
