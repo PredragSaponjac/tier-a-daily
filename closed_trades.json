@@ -975,11 +975,12 @@
     "uw_score": 0,
     "detected_at": "2026-11-24T21:17:56Z",
     "publication": {
-      "telegram": "inflight",
+      "telegram": "sent",
       "x": "pending",
       "tg_attempts": 1,
       "x_attempts": 0,
-      "telegram_attempted_at": "2026-11-24T21:17:58.074598Z"
+      "telegram_attempted_at": "2026-11-24T21:17:58.074598Z",
+      "telegram_message_id": 2659
     }
   }
 ]
