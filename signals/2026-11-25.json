@@ -105,12 +105,13 @@
   },
   "candidates": [],
   "delivery": {
-    "telegram": "inflight",
+    "telegram": "sent",
     "positions": "n/a",
     "x": "n/a",
     "sheet": "n/a",
     "complete": false,
-    "telegram_attempts": 1
+    "telegram_attempts": 1,
+    "telegram_id": 2662
   },
   "outbox": {
     "telegram": "\ud83d\udcc5 Tier A Daily \u2014 2026-11-25\n\nNo Tier A setups passed the screen today.\nNext update: Friday after the 3:05 PM CT scan.",
