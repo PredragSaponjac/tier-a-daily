@@ -55,6 +55,17 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python prospective_tracker.py --send
+      # The sheet's Candidates tab mirrors tier_a_paths, which only this job refreshes. Before
+      # 2026-11-27 the tab updated only on days a trade was opened (it stood at 2026-11-10 that
+      # day). Research view only: this never writes the Track Record or Open Positions tabs,
+      # and a failure here is visible but never blocks the audit.
+      - name: Refresh the sheet's Candidates tab (research view; never trading state)
+        if: steps.pull.outcome == 'success' && steps.label.outcome == 'success'
+        continue-on-error: true
+        env:
+          GOOGLE_SHEETS_CREDS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDS_BASE64 }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: python -c "import sheet_sync; raise SystemExit(0 if sheet_sync.sync_candidates() else 1)"
       - name: Store database state even if reporting failed
         # A failed label batch rolls back rows, but CREATE/ALTER migrations that
         # preceded its DML transaction survive. Verify and retain that valid DB.

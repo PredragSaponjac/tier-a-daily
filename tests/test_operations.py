@@ -441,6 +441,24 @@ class MarkerAndHealthTests(unittest.TestCase):
 
 
 class WorkflowSyntaxTests(unittest.TestCase):
+    def test_weekly_audit_refreshes_only_the_candidates_tab_after_labels_and_never_blocks(self):
+        """2026-11-27: the Candidates tab updated only on trade days; it stood 17 days behind."""
+        import yaml
+        doc = yaml.safe_load((ROOT / '.github' / 'workflows' / 'weekly_audit.yml').read_text(encoding='utf-8'))
+        steps = doc['jobs']['audit']['steps']
+        names = [s.get('name', '') for s in steps]
+        idx = next(i for i, n in enumerate(names) if n.startswith("Refresh the sheet's Candidates tab"))
+        step = steps[idx]
+        self.assertIs(step.get('continue-on-error'), True)                               # never blocks the audit
+        self.assertEqual(step['if'], "steps.pull.outcome == 'success' && steps.label.outcome == 'success'")
+        self.assertIn('sync_candidates()', step['run'])
+        for other in ('sync_all', 'sync_track_record', 'sync_open_positions'):           # trading tabs stay with the
+            self.assertNotIn(other, step['run'])                                         # monitor and the PM run
+        self.assertEqual(set(step['env']), {'GOOGLE_SHEETS_CREDS_BASE64', 'GOOGLE_SHEET_ID'})
+        self.assertLess(names.index('Label the path of every Tier A qualifier'), idx)    # reads fresh labels
+        self.assertLess(idx, names.index('Store database state even if reporting failed'))
+        self.assertEqual(doc['jobs']['audit']['env']['SKEW_DB_PATH'], './skew_history.db')   # the pulled database
+
     def test_storage_conditions_preserve_successful_stages_after_later_failure(self):
         import ast
         def condition(filename, step_name):
